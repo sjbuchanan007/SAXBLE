@@ -34,6 +34,12 @@ String peerName();            // name/address of the connected peer ("" if none)
 void startScan();             // (re)start scanning for the encoder
 void disconnect();
 
+// Pause all BLE radio activity (disconnect + stop scanning) so Wi-Fi can use
+// the radio, then resume afterwards. While paused, loop() does nothing.
+void pause();
+void resume();
+bool paused();
+
 // Send one line. The configured line ending is appended automatically.
 // Returns false if not currently connected.
 bool send(const String& line);

@@ -9,6 +9,7 @@
 #include "config.h"
 #include "ble_uart.h"
 #include "session_log.h"
+#include "wifi_portal.h"
 #include "ui.h"
 
 namespace {
@@ -48,7 +49,8 @@ void setup() {
 
 void loop() {
     M5Cardputer.update();
-    BleUart::loop();
+    BleUart::loop();        // no-op while BLE is paused for Wi-Fi
+    WifiPortal::loop();     // no-op unless the portal is active
     Ui::loop();
     delay(5);
 }

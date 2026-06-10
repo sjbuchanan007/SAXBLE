@@ -48,6 +48,8 @@ void applyDefaults() {
     // Popular/known passwords. studio3 is the documented default.
     g_cfg.passwords         = {"studio3"};
     g_cfg.loginSuccessMarker = "Welcome to Shire SAX Command Line Interface";
+    g_cfg.wifiSsid     = "SAXBLE-Setup";
+    g_cfg.wifiPassword = "saxble1234";   // >= 8 chars for WPA2
 }
 } // namespace
 
@@ -69,6 +71,8 @@ void load() {
     g_cfg.lastPassword = g_prefs.getString("lpw", g_cfg.lastPassword);
     g_cfg.loginSuccessMarker =
         g_prefs.getString("mark", g_cfg.loginSuccessMarker);
+    g_cfg.wifiSsid     = g_prefs.getString("wssid", g_cfg.wifiSsid);
+    g_cfg.wifiPassword = g_prefs.getString("wpass", g_cfg.wifiPassword);
 
     String pwBlob = g_prefs.getString("pws", "");
     if (pwBlob.length()) g_cfg.passwords = splitPasswords(pwBlob);
@@ -87,6 +91,8 @@ void save() {
     g_prefs.putBool("auto",   g_cfg.autoLogin);
     g_prefs.putString("lpw",  g_cfg.lastPassword);
     g_prefs.putString("mark", g_cfg.loginSuccessMarker);
+    g_prefs.putString("wssid", g_cfg.wifiSsid);
+    g_prefs.putString("wpass", g_cfg.wifiPassword);
     g_prefs.putString("pws",  joinPasswords(g_cfg.passwords));
     g_prefs.end();
 }

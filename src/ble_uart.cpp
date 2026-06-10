@@ -12,6 +12,7 @@ NimBLERemoteCharacteristic* g_rxChar    = nullptr; // we write here
 NimBLERemoteCharacteristic* g_txChar    = nullptr; // we get notifications here
 NimBLEAdvertisedDevice*     g_target    = nullptr; // found, awaiting connect
 volatile bool               g_doConnect = false;
+bool                        g_paused    = false;
 String                      g_peerName;
 String                      g_rxBuffer;            // accumulates partial lines
 
@@ -144,7 +145,27 @@ void startScan() {
     setState(State::Scanning);
 }
 
+void pause() {
+    if (g_paused) return;
+    g_paused = true;
+    g_doConnect = false;
+    NimBLEScan* scan = NimBLEDevice::getScan();
+    if (scan->isScanning()) scan->stop();
+    if (g_client && g_client->isConnected()) g_client->disconnect();
+    setState(State::Idle);
+}
+
+void resume() {
+    if (!g_paused) return;
+    g_paused = false;
+    startScan();
+}
+
+bool paused() { return g_paused; }
+
 void loop() {
+    if (g_paused) return;
+
     if (g_doConnect) {
         g_doConnect = false;
         if (!connectToTarget()) {

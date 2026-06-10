@@ -2,6 +2,7 @@
 #include "commands.h"
 #include "config.h"
 #include "session_log.h"
+#include "wifi_portal.h"
 #include <M5Cardputer.h>
 #include <vector>
 
@@ -35,6 +36,7 @@ enum class Screen : uint8_t {
     LogView,
     Settings,
     TextInput,
+    WifiPortal,
 };
 
 // ----- State ----------------------------------------------------------------
@@ -51,6 +53,8 @@ String   g_param;
 bool     g_loggedIn = false;
 String   g_notice;
 uint32_t g_noticeUntil = 0;
+bool     g_confirmArmed = false;   // destructive commands need a second ENTER
+uint32_t g_portalRefresh = 0;      // periodic redraw while the Wi-Fi portal is up
 
 // Text-entry context: where the confirmed text should go.
 enum class TextTarget : uint8_t { Param, NewPassword, DeviceName };
@@ -62,6 +66,8 @@ String     g_textHint;
 // ----- Forward declarations (definitions appear in dependency order below) --
 void drawNoticeOverlay();
 void beginParamStep();
+void startWifiPortal();
+void stopWifiPortal();
 
 // ----- Small helpers --------------------------------------------------------
 auto& D() { return M5Cardputer.Display; }
@@ -86,6 +92,7 @@ void gotoScreen(Screen s) {
     g_screen = s;
     g_cursor = 0;
     g_scroll = 0;
+    if (s == Screen::Confirm) g_confirmArmed = false; // re-arm fresh each time
     setDirty();
 }
 
@@ -97,6 +104,7 @@ std::vector<String> homeItems() {
     for (auto& c : Commands::categories()) v.push_back(c.label);
     v.push_back("Login / Password");
     v.push_back("Session Log");
+    v.push_back("Wi-Fi Log Export");
     v.push_back("Settings");
     return v;
 }
@@ -215,10 +223,46 @@ void drawConfirm() {
         D().print(line.substring(38, 76));
     }
 
-    D().setTextColor(COL_DIM, COL_BG);
-    D().setCursor(8, kBodyBottom - 14);
-    D().print("ENTER=send   `=back");
+    if (g_cmd->destructive) {
+        D().setTextColor(COL_ERR, COL_BG);
+        D().setCursor(8, kBodyTop + 52);
+        D().print(g_confirmArmed ? "ARMED - this cannot be undone"
+                                 : "DESTRUCTIVE command");
+        D().setTextColor(COL_DIM, COL_BG);
+        D().setCursor(8, kBodyBottom - 14);
+        D().print(g_confirmArmed ? "ENTER=SEND now   `=back"
+                                 : "ENTER=arm   `=back");
+    } else {
+        D().setTextColor(COL_DIM, COL_BG);
+        D().setCursor(8, kBodyBottom - 14);
+        D().print("ENTER=send   `=back");
+    }
     drawFooter();
+    drawNoticeOverlay();
+}
+
+void drawWifiPortal() {
+    D().fillScreen(COL_BG);
+    drawHeader("Wi-Fi Log Export");
+
+    D().setTextColor(COL_FG, COL_BG);
+    int y = kBodyTop + 4;
+    D().setCursor(6, y);      D().print("Join this Wi-Fi:");
+    D().setTextColor(COL_OK, COL_BG);
+    D().setCursor(6, y + 12);  D().print("SSID: " + WifiPortal::ssid());
+    D().setCursor(6, y + 24);  D().print("Pass: " + WifiPortal::password());
+    D().setTextColor(COL_FG, COL_BG);
+    D().setCursor(6, y + 40);  D().print("Then open in a browser:");
+    D().setTextColor(COL_OK, COL_BG);
+    D().setCursor(6, y + 52);  D().print("http://" + WifiPortal::ip() + "/");
+    D().setTextColor(COL_DIM, COL_BG);
+    D().setCursor(6, y + 68);
+    D().printf("clients connected: %d", WifiPortal::clientCount());
+
+    D().setTextColor(COL_DIM, COL_BG);
+    D().setCursor(6, kBodyBottom - 2);
+    D().print("`=stop Wi-Fi & back");
+    // footer omitted: BLE is paused while the portal is up
     drawNoticeOverlay();
 }
 
@@ -315,6 +359,7 @@ void render() {
         case Screen::LogView:  drawLogView();   break;
         case Screen::Settings: drawList("Settings", settingsItems()); break;
         case Screen::TextInput:drawTextInput(); break;
+        case Screen::WifiPortal:drawWifiPortal(); break;
     }
     g_dirty = false;
 }
@@ -409,9 +454,28 @@ void activateHome() {
         gotoScreen(Screen::Login);
     } else if (g_cursor == nCats + 1) {
         gotoScreen(Screen::LogView);
+    } else if (g_cursor == nCats + 2) {
+        startWifiPortal();
     } else {
         gotoScreen(Screen::Settings);
     }
+}
+
+// Wi-Fi shares the radio with BLE, so pause BLE before bringing up the AP.
+void startWifiPortal() {
+    BleUart::pause();
+    if (WifiPortal::start()) {
+        gotoScreen(Screen::WifiPortal);
+    } else {
+        BleUart::resume();
+        notifyImpl("Wi-Fi failed to start");
+    }
+}
+
+void stopWifiPortal() {
+    WifiPortal::stop();
+    BleUart::resume();
+    gotoScreen(Screen::Home);
 }
 
 void activateSettings() {
@@ -538,8 +602,16 @@ void handleKeys(const Keyboard_Class::KeysState& st) {
             break;
         }
         case Screen::Confirm:
-            if (k == Key::Back) gotoScreen(Screen::CommandList);
-            else if (k == Key::Select) sendCurrentCommand();
+            if (k == Key::Back) {
+                gotoScreen(Screen::CommandList);
+            } else if (k == Key::Select) {
+                if (g_cmd->destructive && !g_confirmArmed) {
+                    g_confirmArmed = true;   // first ENTER arms, second sends
+                    setDirty();
+                } else {
+                    sendCurrentCommand();
+                }
+            }
             break;
         case Screen::Login: {
             auto items = loginItems();
@@ -574,6 +646,9 @@ void handleKeys(const Keyboard_Class::KeysState& st) {
                                          : ("Export: " + err));
             }
             break;
+        case Screen::WifiPortal:
+            if (k == Key::Back) stopWifiPortal();
+            break;
         default: break;
     }
 }
@@ -595,6 +670,11 @@ void loop() {
     }
     // notice expiry forces a redraw
     if (g_notice.length() && millis() > g_noticeUntil) setDirty();
+    // refresh the portal screen so the connected-client count stays live
+    if (g_screen == Screen::WifiPortal && millis() > g_portalRefresh) {
+        g_portalRefresh = millis() + 1000;
+        setDirty();
+    }
     if (g_dirty) render();
 }
 
