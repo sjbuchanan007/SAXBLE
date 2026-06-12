@@ -131,64 +131,52 @@ bool connectToTarget() {
     g_rxChar = nullptr;
     g_txChar = nullptr;
 
-    // First try the configured (Nordic UART) service/characteristics.
+    // Prefer the configured write characteristic if it exists.
     NimBLERemoteService* svc =
         g_client->getService(NimBLEUUID(cfg.serviceUuid.c_str()));
     if (svc) {
         NimBLERemoteCharacteristic* rx =
             svc->getCharacteristic(NimBLEUUID(cfg.rxCharUuid.c_str()));
-        NimBLERemoteCharacteristic* tx =
-            svc->getCharacteristic(NimBLEUUID(cfg.txCharUuid.c_str()));
         if (rx && (rx->canWrite() || rx->canWriteNoResponse())) g_rxChar = rx;
-        if (tx && (tx->canNotify() || tx->canIndicate()))       g_txChar = tx;
     }
 
-    // Fall back: enumerate everything and pick a writable + a notifying char.
-    // (Some encoders use a single characteristic that does both.)
-    if (!g_rxChar || !g_txChar) {
-        SessionLog::info("scanning services for usable characteristics");
-        std::vector<NimBLERemoteService*>* services = g_client->getServices(true);
-        if (services) {
-            for (auto s : *services) {
-                std::vector<NimBLERemoteCharacteristic*>* chars =
-                    s->getCharacteristics(true);
-                if (!chars) continue;
-                for (auto ch : *chars) {
-                    bool w = ch->canWrite() || ch->canWriteNoResponse();
-                    bool n = ch->canNotify() || ch->canIndicate();
-                    SessionLog::info(
-                        String("chr ") + ch->getUUID().toString().c_str() +
-                        (w ? " W" : "") + (n ? " N" : ""));
-                    if (!g_rxChar && w) g_rxChar = ch;
-                    if (!g_txChar && n) g_txChar = ch;
+    // Enumerate everything: pick a writable characteristic for sending, and
+    // subscribe to EVERY notify/indicate characteristic so we capture the
+    // encoder's replies regardless of which one it uses for output.
+    int subscribed = 0;
+    std::vector<NimBLERemoteService*>* services = g_client->getServices(true);
+    if (services) {
+        for (auto s : *services) {
+            std::vector<NimBLERemoteCharacteristic*>* chars =
+                s->getCharacteristics(true);
+            if (!chars) continue;
+            for (auto ch : *chars) {
+                bool w = ch->canWrite() || ch->canWriteNoResponse();
+                bool n = ch->canNotify();
+                bool ind = ch->canIndicate();
+                SessionLog::info(String("chr ") + (w ? "W" : "-") +
+                                 (n ? "N" : (ind ? "I" : "-")) + " " +
+                                 ch->getUUID().toString().c_str());
+                if (!g_rxChar && w) g_rxChar = ch;
+                if (n || ind) {
+                    // subscribe(true)=notify, subscribe(false)=indicate.
+                    if (ch->subscribe(n, onNotify)) {
+                        if (!g_txChar) g_txChar = ch;
+                        subscribed++;
+                    }
                 }
             }
         }
     }
 
-    // Allow a single characteristic to serve as both write and notify.
-    if (g_rxChar && !g_txChar &&
-        (g_rxChar->canNotify() || g_rxChar->canIndicate())) {
-        g_txChar = g_rxChar;
-    }
-    if (g_txChar && !g_rxChar &&
-        (g_txChar->canWrite() || g_txChar->canWriteNoResponse())) {
-        g_rxChar = g_txChar;
-    }
-
-    if (!g_rxChar && !g_txChar) {
-        SessionLog::info("no usable characteristics found");
+    if (!g_rxChar) {
+        SessionLog::info("no writable characteristic; disconnecting");
         g_client->disconnect();
         return false;
     }
 
-    if (g_txChar && (g_txChar->canNotify() || g_txChar->canIndicate())) {
-        g_txChar->subscribe(true, onNotify);
-    }
-    SessionLog::info(
-        String("using rx=") +
-        (g_rxChar ? g_rxChar->getUUID().toString().c_str() : "none") +
-        " tx=" + (g_txChar ? g_txChar->getUUID().toString().c_str() : "none"));
+    SessionLog::info(String("rx=") + g_rxChar->getUUID().toString().c_str());
+    SessionLog::info(String("subscribed ") + subscribed + " notify char(s)");
 
     g_peerName = g_target->haveName()
                      ? String(g_target->getName().c_str())
