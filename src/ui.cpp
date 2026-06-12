@@ -70,7 +70,9 @@ void startWifiPortal();
 void stopWifiPortal();
 
 // ----- Small helpers --------------------------------------------------------
-auto& D() { return M5Cardputer.Display; }
+// Explicit return type (the ESP32 Arduino core builds with C++11, which has no
+// auto return-type deduction). decltype keeps us independent of the exact type.
+decltype(M5Cardputer.Display)& D() { return M5Cardputer.Display; }
 
 void setDirty() { g_dirty = true; }
 
