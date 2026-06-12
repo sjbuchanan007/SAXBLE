@@ -38,7 +38,8 @@ void disconnect();
 struct DeviceInfo {
     String label;   // advertised name, or address if unnamed
     int    rssi;     // signal strength (dBm)
-    bool   hasNus;   // advertises the Nordic UART service UUID
+    bool   hasNus;   // advertises a known UART service UUID
+    bool   named;    // had an advertised name
 };
 int        deviceCount();
 DeviceInfo deviceAt(int index);

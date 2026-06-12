@@ -30,6 +30,7 @@ struct FoundDev {
     String label;
     int    rssi;
     bool   hasNus;
+    bool   named;
 };
 std::vector<FoundDev> g_found;
 
@@ -80,10 +81,14 @@ class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
         }
         auto& cfg = Config::get();
         String name = dev->haveName() ? String(dev->getName().c_str()) : String();
+        // Flag devices advertising a known serial service (Nordic UART or the
+        // Microchip/ISSC transparent UART) as a likely encoder.
         bool hasNus =
-            dev->isAdvertisingService(NimBLEUUID(cfg.serviceUuid.c_str()));
+            dev->isAdvertisingService(NimBLEUUID(cfg.serviceUuid.c_str())) ||
+            dev->isAdvertisingService(
+                NimBLEUUID("49535343-fe7d-4ae5-8fa9-9fafd205e455"));
         g_found.push_back({dev, addr, name.length() ? name : addr,
-                           dev->getRSSI(), hasNus});
+                           dev->getRSSI(), hasNus, name.length() > 0});
         if (g_devicesCb) g_devicesCb();
 
         // If a device-name filter is configured and matches, auto-connect.
@@ -206,9 +211,9 @@ void startScan() {
     if (g_devicesCb) g_devicesCb();
     NimBLEScan* scan = NimBLEDevice::getScan();
     scan->setAdvertisedDeviceCallbacks(&g_scanCb, /*wantDuplicates=*/false);
-    scan->setActiveScan(true);
-    scan->setInterval(100);
-    scan->setWindow(80);
+    scan->setActiveScan(true);   // request scan responses (carry the name)
+    scan->setInterval(60);        // near-continuous scanning so the list fills
+    scan->setWindow(60);          // fast (window == interval = 100% duty)
     scan->clearResults();
     scan->start(0, nullptr, false); // 0 = scan until we stop it
     setState(State::Scanning);
@@ -272,9 +277,10 @@ void disconnect() {
 int deviceCount() { return (int)g_found.size(); }
 
 DeviceInfo deviceAt(int index) {
-    if (index < 0 || index >= (int)g_found.size()) return {String("?"), 0, false};
+    if (index < 0 || index >= (int)g_found.size())
+        return {String("?"), 0, false, false};
     const FoundDev& f = g_found[index];
-    return {f.label, f.rssi, f.hasNus};
+    return {f.label, f.rssi, f.hasNus, f.named};
 }
 
 void connectIndex(int index) {

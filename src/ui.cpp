@@ -4,6 +4,7 @@
 #include "session_log.h"
 #include "wifi_portal.h"
 #include <M5Cardputer.h>
+#include <algorithm>
 #include <vector>
 
 namespace Ui {
@@ -121,20 +122,45 @@ std::vector<String> homeItems() {
     return v;
 }
 
-// Discovered Bluetooth devices, plus trailing actions.
+// Maps the device rows shown on the scan screen to BleUart device indices
+// (the displayed list is sorted/filtered, so positions differ).
+std::vector<int> g_scanMap;
+bool g_scanNamesOnly = false;
+
+// Discovered Bluetooth devices (sorted), plus trailing actions.
 std::vector<String> bleScanItems() {
-    std::vector<String> v;
+    g_scanMap.clear();
     int n = BleUart::deviceCount();
+
+    std::vector<int> idx;
     for (int i = 0; i < n; ++i) {
         BleUart::DeviceInfo d = BleUart::deviceAt(i);
-        // "*" prefix marks a device advertising the UART service (likely the
-        // encoder); trailing number is signal strength (closer = nearer 0).
+        if (g_scanNamesOnly && !d.named) continue;
+        idx.push_back(i);
+    }
+    // Likely encoder (UART service) first, then named devices, then strongest.
+    std::sort(idx.begin(), idx.end(), [](int a, int b) {
+        BleUart::DeviceInfo da = BleUart::deviceAt(a);
+        BleUart::DeviceInfo db = BleUart::deviceAt(b);
+        if (da.hasNus != db.hasNus) return da.hasNus;
+        if (da.named  != db.named)  return da.named;
+        return da.rssi > db.rssi;
+    });
+
+    std::vector<String> v;
+    for (int i : idx) {
+        BleUart::DeviceInfo d = BleUart::deviceAt(i);
+        // "*" marks a device advertising a UART service (likely the encoder);
+        // trailing number is signal strength (closer to 0 = nearer).
         String s = (d.hasNus ? "*" : " ") + d.label;
         if ((int)s.length() > 15) s = s.substring(0, 15);
         s += " " + String(d.rssi);
+        g_scanMap.push_back(i);
         v.push_back(s);
     }
-    v.push_back(n ? "Rescan" : "Searching... (Rescan)");
+
+    v.push_back(v.size() ? "Rescan" : "Searching...");
+    v.push_back(g_scanNamesOnly ? "Show all devices" : "Hide unnamed");
     v.push_back("Skip to menu");
     return v;
 }
@@ -624,20 +650,23 @@ void handleKeys(const Keyboard_Class::KeysState& st) {
 
     switch (g_screen) {
         case Screen::BleScan: {
-            int n = BleUart::deviceCount();
-            auto items = bleScanItems();      // n devices + Rescan + Skip
+            auto items = bleScanItems();      // also rebuilds g_scanMap
+            int shown = (int)g_scanMap.size(); // device rows; then 3 actions
             if (k == Key::Back) {
                 gotoScreen(Screen::Home);
             } else if (k == Key::Select) {
-                if (g_cursor < n) {
-                    BleUart::connectIndex(g_cursor);
+                if (g_cursor < shown) {
+                    BleUart::connectIndex(g_scanMap[g_cursor]);
                     notifyImpl("Connecting...");
-                    // Stay here; onBleState() moves to the login screen on
-                    // connect.
-                } else if (g_cursor == n) {
+                    // Stay here; onBleState() moves to the login screen.
+                } else if (g_cursor == shown) {          // Rescan
                     BleUart::startScan();
                     notifyImpl("Rescanning...");
-                } else {
+                } else if (g_cursor == shown + 1) {      // toggle filter
+                    g_scanNamesOnly = !g_scanNamesOnly;
+                    g_cursor = 0;
+                    setDirty();
+                } else {                                  // Skip to menu
                     gotoScreen(Screen::Home);
                 }
             } else handleListNav(k, items.size());
