@@ -62,6 +62,7 @@ String   g_lastEncoderLine;        // most recent text from the encoder
 String   g_notice;
 uint32_t g_noticeUntil = 0;
 bool     g_confirmArmed = false;   // destructive commands need a second ENTER
+bool     g_autoLoginSuppressed = false; // set after an explicit Logout command
 uint32_t g_portalRefresh = 0;      // periodic redraw while the Wi-Fi portal is up
 
 // Text-entry context: where the confirmed text should go.
@@ -411,6 +412,12 @@ void sendCurrentCommand() {
     if (BleUart::send(line)) {
         SessionLog::tx(line);
         notifyImpl("Sent");
+        // An explicit logout: drop our AUTH state and stop auto-login from
+        // immediately logging back in at the next prompt.
+        if (String(g_cmd->id) == "gen_logout") {
+            g_loggedIn = false;
+            g_autoLoginSuppressed = true;
+        }
     } else {
         SessionLog::info("send failed (not connected): " + line);
         notifyImpl("Not connected");
@@ -424,6 +431,7 @@ void sendPassword(const String& pw) {
     Config::addPassword(pw);
     cfg.lastPassword = pw;
     Config::save();
+    g_autoLoginSuppressed = false;   // user is deliberately logging in
     if (BleUart::send(pw)) {
         SessionLog::info("login sent (password hidden)");
         notifyImpl("Password sent");
@@ -762,6 +770,7 @@ void onBleState(BleUart::State s) {
         // (handled in main) runs in the background; on the success banner we
         // jump to the menu automatically.
         g_lastEncoderLine = "";
+        g_autoLoginSuppressed = false;   // fresh connection, allow auto-login
         gotoScreen(Screen::Login);
     }
     SessionLog::info(String("BLE: ") + BleUart::statusText());
@@ -777,6 +786,7 @@ void onDevicesChanged() { setDirty(); }
 
 void setLoggedIn(bool in) { g_loggedIn = in; setDirty(); }
 bool loggedIn()           { return g_loggedIn; }
+bool autoLoginSuppressed() { return g_autoLoginSuppressed; }
 void notify(const String& msg) { notifyImpl(msg); }
 
 } // namespace Ui

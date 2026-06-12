@@ -32,6 +32,13 @@ void clear();
 // True if a microSD card was detected at begin().
 bool sdAvailable();
 
+// (Re)mount the microSD card, e.g. after inserting one post-boot. Returns true
+// if the card is now mounted.
+bool mountSd();
+
+// Folder where logs are written (on the SD card).
+const char* logDir();
+
 // Write the whole session to microSD. Returns the path written, or "" on
 // failure. `outError` (optional) receives a human-readable reason on failure.
 String exportToSd(String* outError = nullptr);

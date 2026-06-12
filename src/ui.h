@@ -21,6 +21,7 @@ void onDevicesChanged();   // the discovered-device list changed
 
 void setLoggedIn(bool in);
 bool loggedIn();
+bool autoLoginSuppressed();   // true after an explicit Logout, until reconnect/login
 
 // Show the password screen (e.g. when the encoder prompts and auto-login is off
 // or has failed).

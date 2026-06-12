@@ -45,6 +45,14 @@ void begin() {
     g_sdOk = SD.begin(kSdCs, SPI);
 }
 
+bool mountSd() {
+    if (g_sdOk) return true;
+    g_sdOk = SD.begin(kSdCs, SPI);
+    return g_sdOk;
+}
+
+const char* logDir() { return "/saxble"; }
+
 void add(Dir dir, const String& text) {
     g_entries.push_back({millis(), dir, text});
     while (g_entries.size() > kMaxEntries) g_entries.pop_front();

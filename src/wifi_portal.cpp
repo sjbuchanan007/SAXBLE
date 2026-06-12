@@ -52,6 +52,14 @@ void handleIndex() {
     String page = htmlHeader("Commissioning logs");
     page += F("<a class=btn href='/export'>Save current session to SD</a>");
 
+    if (!SessionLog::mountSd()) {
+        page += F("<p class=muted>No SD card detected. Insert a FAT32 card and "
+                  "tap reload.</p>");
+        page += htmlFooter();
+        g_server.send(200, "text/html", page);
+        return;
+    }
+
     if (!SD.exists(kLogDir)) SD.mkdir(kLogDir);
     File dir = SD.open(kLogDir);
     if (!dir || !dir.isDirectory()) {
@@ -103,12 +111,15 @@ void handleView() {
 void handleExport() {
     String err;
     String path = SessionLog::exportToSd(&err);
+    String page = htmlHeader("Export");
     if (path.length()) {
-        g_server.sendHeader("Location", "/");
-        g_server.send(303, "text/plain", "");
+        page += "<p>Saved <b>" + baseName(path) + "</b>.</p>";
     } else {
-        g_server.send(500, "text/plain", "Export failed: " + err);
+        page += "<p class=muted>Export failed: " + err + "</p>";
     }
+    page += F("<a class=btn href='/'>Back to logs</a>");
+    page += htmlFooter();
+    g_server.send(200, "text/html", page);
 }
 
 } // namespace
@@ -116,6 +127,8 @@ void handleExport() {
 bool start() {
     if (g_active) return true;
     auto& cfg = Config::get();
+
+    SessionLog::mountSd();   // pick up a card inserted after boot
 
     WiFi.persistent(false);
     WiFi.mode(WIFI_AP);
@@ -133,8 +146,10 @@ bool start() {
     g_server.on("/view", handleView);
     g_server.on("/export", handleExport);
     g_server.onNotFound([]() {
-        g_server.sendHeader("Location", "/");
-        g_server.send(303, "text/plain", "");
+        String page = htmlHeader("Not found");
+        page += F("<a class=btn href='/'>Back to logs</a>");
+        page += htmlFooter();
+        g_server.send(404, "text/html", page);
     });
     g_server.begin();
 

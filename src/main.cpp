@@ -26,20 +26,24 @@ void handleBleState(BleUart::State s) {
 // (no newline) after connecting; when we see it we send the saved password.
 // On the success banner we mark ourselves logged in (handled in Ui::onRxLine).
 void handleEncoderLine(const String& line) {
-    if (Ui::loggedIn()) return;
-
     String lower = line;
     lower.toLowerCase();
-    if (lower.indexOf("password") < 0) return;   // not a login prompt
+    // A login prompt looks like "Password:" — require both to avoid matching
+    // command echoes (e.g. changing the password) that mention the word.
+    if (lower.indexOf("password") < 0 || !line.endsWith(":")) return;
+
+    // Seeing the password prompt means we are NOT logged in.
+    Ui::setLoggedIn(false);
 
     auto& cfg = Config::get();
-    if (cfg.autoLogin && cfg.lastPassword.length() &&
+    if (cfg.autoLogin && !Ui::autoLoginSuppressed() && cfg.lastPassword.length() &&
         g_loginAttempts < kMaxLoginAttempts) {
         g_loginAttempts++;
         BleUart::send(cfg.lastPassword);
         SessionLog::info("auto-login sent (password hidden)");
     } else {
-        // Auto-login is off or exhausted — let the user pick a password.
+        // Auto-login off, suppressed (explicit logout), or exhausted — let the
+        // user pick a password.
         Ui::promptLogin();
     }
 }
@@ -68,8 +72,10 @@ void setup() {
 
 void loop() {
     M5Cardputer.update();
-    BleUart::loop();        // no-op while BLE is paused for Wi-Fi
-    WifiPortal::loop();     // no-op unless the portal is active
+    // Handle the keyboard first so the UI (e.g. exiting the Wi-Fi screen) stays
+    // responsive even when the web server is busy serving a client.
     Ui::loop();
+    WifiPortal::loop();     // no-op unless the portal is active
+    BleUart::loop();        // no-op while BLE is paused for Wi-Fi
     delay(5);
 }
