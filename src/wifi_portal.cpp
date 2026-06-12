@@ -92,20 +92,31 @@ File openRequested(const String& fname) {
     return SD.open(path, FILE_READ);
 }
 
+// Log files are small, so read the whole thing into RAM and send it in one
+// response. This is far more reliable over Wi-Fi than chunked streamFile().
+String readWhole(File& f) {
+    String body;
+    body.reserve(f.size() + 1);
+    while (f.available()) body += (char)f.read();
+    return body;
+}
+
 void handleDownload() {
     File f = openRequested(g_server.arg("f"));
     if (!f) { g_server.send(404, "text/plain", "not found"); return; }
-    g_server.sendHeader("Content-Disposition",
-                        "attachment; filename=" + baseName(String(f.name())));
-    g_server.streamFile(f, "application/octet-stream");
+    String name = baseName(String(f.name()));
+    String body = readWhole(f);
     f.close();
+    g_server.sendHeader("Content-Disposition", "attachment; filename=" + name);
+    g_server.send(200, "application/octet-stream", body);
 }
 
 void handleView() {
     File f = openRequested(g_server.arg("f"));
     if (!f) { g_server.send(404, "text/plain", "not found"); return; }
-    g_server.streamFile(f, "text/plain");
+    String body = readWhole(f);
     f.close();
+    g_server.send(200, "text/plain", body);
 }
 
 void handleExport() {

@@ -192,15 +192,17 @@ bool connectToTarget() {
 
 } // namespace
 
-void begin() {
-    auto& cfg = Config::get();
+void initRadio() {
     NimBLEDevice::init("SAXBLE");
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
     // Support "just works" pairing in case the encoder requires an encrypted
     // link before it exposes its service (harmless if it doesn't).
     NimBLEDevice::setSecurityAuth(/*bonding=*/true, /*mitm=*/false, /*sc=*/true);
     NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
-    (void)cfg;
+}
+
+void begin() {
+    initRadio();
     startScan();
 }
 
@@ -224,14 +226,22 @@ void pause() {
     g_paused = true;
     g_doConnect = false;
     NimBLEScan* scan = NimBLEDevice::getScan();
-    if (scan->isScanning()) scan->stop();
+    if (scan && scan->isScanning()) scan->stop();
     if (g_client && g_client->isConnected()) g_client->disconnect();
+    g_rxChar = nullptr;
+    g_txChar = nullptr;
+    g_client = nullptr;
+    g_found.clear();
+    // Fully release the radio so Wi-Fi gets the whole antenna (BLE+Wi-Fi
+    // coexistence otherwise starves the web server).
+    NimBLEDevice::deinit(true);
     setState(State::Idle);
 }
 
 void resume() {
     if (!g_paused) return;
     g_paused = false;
+    initRadio();
     startScan();
 }
 
