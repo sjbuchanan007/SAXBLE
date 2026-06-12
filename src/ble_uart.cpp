@@ -26,7 +26,8 @@ void setState(State s) {
 }
 
 // Does this advertisement look like our encoder?
-bool matchesTarget(const NimBLEAdvertisedDevice* dev) {
+// (NimBLE's accessors are non-const, so the pointer can't be const.)
+bool matchesTarget(NimBLEAdvertisedDevice* dev) {
     auto& cfg = Config::get();
     if (cfg.deviceName.length()) {
         return dev->haveName() &&
