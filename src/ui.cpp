@@ -19,14 +19,21 @@ constexpr uint16_t COL_ERR  = 0xF800; // red
 constexpr uint16_t COL_BAR  = 0x18E3; // dark header/footer
 
 // ----- Layout ---------------------------------------------------------------
+// Primary text is drawn at font size 2 (12x16 px) so it's readable on the small
+// 240x135 panel. TXT_* are the cell sizes for that font.
 constexpr int W = 240, H = 135;
-constexpr int kRowH = 13;
-constexpr int kBodyTop = 18;
-constexpr int kBodyBottom = 118;
-constexpr int kVisibleRows = (kBodyBottom - kBodyTop) / kRowH; // 7
+constexpr int TXT_W = 12, TXT_H = 16;     // size-2 glyph cell
+constexpr int kHeaderH = 22;
+constexpr int kFooterH = 14;
+constexpr int kRowH = 20;
+constexpr int kBodyTop = kHeaderH + 2;            // 24
+constexpr int kBodyBottom = H - kFooterH;          // 121
+constexpr int kVisibleRows = (kBodyBottom - kBodyTop) / kRowH; // 4
+constexpr int kMaxChars = W / TXT_W;               // 20 chars per line at size 2
 
 // ----- Screens --------------------------------------------------------------
 enum class Screen : uint8_t {
+    BleScan,
     Home,
     CommandList,
     Channel,
@@ -40,7 +47,7 @@ enum class Screen : uint8_t {
 };
 
 // ----- State ----------------------------------------------------------------
-Screen   g_screen = Screen::Home;
+Screen   g_screen = Screen::BleScan;
 int      g_cursor = 0;       // selection index on the current list
 int      g_scroll = 0;       // first visible row
 bool     g_dirty  = true;
@@ -104,10 +111,29 @@ void gotoScreen(Screen s) {
 std::vector<String> homeItems() {
     std::vector<String> v;
     for (auto& c : Commands::categories()) v.push_back(c.label);
+    v.push_back("Bluetooth (connect)");
     v.push_back("Login / Password");
     v.push_back("Session Log");
     v.push_back("Wi-Fi Log Export");
     v.push_back("Settings");
+    return v;
+}
+
+// Discovered Bluetooth devices, plus trailing actions.
+std::vector<String> bleScanItems() {
+    std::vector<String> v;
+    int n = BleUart::deviceCount();
+    for (int i = 0; i < n; ++i) {
+        BleUart::DeviceInfo d = BleUart::deviceAt(i);
+        // "*" prefix marks a device advertising the UART service (likely the
+        // encoder); trailing number is signal strength (closer = nearer 0).
+        String s = (d.hasNus ? "*" : " ") + d.label;
+        if ((int)s.length() > 15) s = s.substring(0, 15);
+        s += " " + String(d.rssi);
+        v.push_back(s);
+    }
+    v.push_back(n ? "Rescan" : "Searching... (Rescan)");
+    v.push_back("Skip to menu");
     return v;
 }
 
@@ -141,25 +167,24 @@ std::vector<String> settingsItems() {
 
 // ----- Rendering ------------------------------------------------------------
 void drawHeader(const String& title) {
-    D().fillRect(0, 0, W, kBodyTop - 2, COL_BAR);
+    D().fillRect(0, 0, W, kHeaderH, COL_BAR);
     D().setTextColor(COL_FG, COL_BAR);
-    D().setTextSize(1);
-    D().setCursor(4, 4);
-    D().print(title);
+    D().setTextSize(2);
+    D().setCursor(4, 3);
+    D().print(title.substring(0, kMaxChars));
 }
 
 void drawFooter() {
-    D().fillRect(0, H - 15, W, 15, COL_BAR);
-    D().setTextSize(1);
+    D().fillRect(0, H - kFooterH, W, kFooterH, COL_BAR);
+    D().setTextSize(1);   // status line stays compact
 
     bool conn = BleUart::connected();
     D().setTextColor(conn ? COL_OK : COL_DIM, COL_BAR);
-    D().setCursor(4, H - 12);
-    D().print(BleUart::statusText().substring(0, 26));
+    D().setCursor(4, H - kFooterH + 3);
+    D().print(BleUart::statusText().substring(0, 30));
 
-    // login dot
     D().setTextColor(g_loggedIn ? COL_OK : COL_ERR, COL_BAR);
-    D().setCursor(W - 36, H - 12);
+    D().setCursor(W - 28, H - kFooterH + 3);
     D().print(g_loggedIn ? "AUTH" : "----");
 }
 
@@ -168,9 +193,10 @@ void drawList(const String& title, const std::vector<String>& items,
     D().fillRect(0, kBodyTop - 2, W, kBodyBottom - kBodyTop + 4, COL_BG);
     drawHeader(title);
 
+    D().setTextSize(2);
     if (items.empty()) {
         D().setTextColor(COL_DIM, COL_BG);
-        D().setCursor(8, kBodyTop + 8);
+        D().setCursor(8, kBodyTop + 6);
         D().print(emptyMsg.length() ? emptyMsg : "(empty)");
     } else {
         for (int row = 0; row < kVisibleRows; ++row) {
@@ -180,13 +206,14 @@ void drawList(const String& title, const std::vector<String>& items,
             bool sel = (idx == g_cursor);
             if (sel) D().fillRect(0, y, W, kRowH, COL_HL);
             D().setTextColor(sel ? COL_FG : COL_DIM, sel ? COL_HL : COL_BG);
-            D().setCursor(6, y + 3);
-            D().print(items[idx].substring(0, 38));
+            D().setCursor(6, y + 2);
+            D().print(items[idx].substring(0, kMaxChars - 1));
         }
-        // scrollbar hint
+        // position indicator (small)
         if ((int)items.size() > kVisibleRows) {
+            D().setTextSize(1);
             D().setTextColor(COL_DIM, COL_BG);
-            D().setCursor(W - 30, kBodyTop);
+            D().setCursor(W - 34, kBodyTop);
             D().printf("%d/%d", g_cursor + 1, (int)items.size());
         }
     }
@@ -199,14 +226,14 @@ void drawNoticeOverlay() {
         g_notice = "";
         return;
     }
-    int boxH = 18;
+    int boxH = 24;
     int y = (H - boxH) / 2;
-    D().fillRect(10, y, W - 20, boxH, COL_DIM);
-    D().drawRect(10, y, W - 20, boxH, COL_FG);
+    D().fillRect(6, y, W - 12, boxH, COL_DIM);
+    D().drawRect(6, y, W - 12, boxH, COL_FG);
     D().setTextColor(COL_FG, COL_DIM);
-    D().setTextSize(1);
-    D().setCursor(18, y + 5);
-    D().print(g_notice.substring(0, 34));
+    D().setTextSize(2);
+    D().setCursor(12, y + 4);
+    D().print(g_notice.substring(0, kMaxChars - 2));
 }
 
 void drawConfirm() {
@@ -214,56 +241,52 @@ void drawConfirm() {
     drawHeader("Send command");
     String line = Commands::build(*g_cmd, g_channel, g_param);
 
-    D().setTextColor(COL_FG, COL_BG);
-    D().setCursor(8, kBodyTop + 6);
-    D().print("Will send:");
+    D().setTextSize(2);
     D().setTextColor(COL_OK, COL_BG);
-    D().setCursor(8, kBodyTop + 22);
-    D().print(line.substring(0, 38));
-    if (line.length() > 38) {
-        D().setCursor(8, kBodyTop + 34);
-        D().print(line.substring(38, 76));
+    int y = kBodyTop + 4;
+    for (int pos = 0; pos < (int)line.length() && y < kBodyBottom - 36;
+         pos += kMaxChars, y += TXT_H) {
+        D().setCursor(6, y);
+        D().print(line.substring(pos, pos + kMaxChars));
     }
 
     if (g_cmd->destructive) {
         D().setTextColor(COL_ERR, COL_BG);
-        D().setCursor(8, kBodyTop + 52);
-        D().print(g_confirmArmed ? "ARMED - this cannot be undone"
-                                 : "DESTRUCTIVE command");
-        D().setTextColor(COL_DIM, COL_BG);
-        D().setCursor(8, kBodyBottom - 14);
-        D().print(g_confirmArmed ? "ENTER=SEND now   `=back"
-                                 : "ENTER=arm   `=back");
-    } else {
-        D().setTextColor(COL_DIM, COL_BG);
-        D().setCursor(8, kBodyBottom - 14);
-        D().print("ENTER=send   `=back");
+        D().setCursor(6, kBodyBottom - 34);
+        D().print(g_confirmArmed ? "ARMED" : "DESTRUCTIVE");
     }
+    D().setTextSize(1);
+    D().setTextColor(COL_DIM, COL_BG);
+    D().setCursor(6, kBodyBottom - 10);
+    if (g_cmd->destructive)
+        D().print(g_confirmArmed ? "ENTER=SEND NOW   `=back"
+                                 : "ENTER=arm, then ENTER   `=back");
+    else
+        D().print("ENTER=send   `=back");
     drawFooter();
     drawNoticeOverlay();
 }
 
 void drawWifiPortal() {
     D().fillScreen(COL_BG);
-    drawHeader("Wi-Fi Log Export");
+    drawHeader("Wi-Fi Export");
 
+    D().setTextSize(2);
+    int y = kBodyTop + 2;
     D().setTextColor(COL_FG, COL_BG);
-    int y = kBodyTop + 4;
-    D().setCursor(6, y);      D().print("Join this Wi-Fi:");
+    D().setCursor(4, y);            D().print("Join Wi-Fi:");
     D().setTextColor(COL_OK, COL_BG);
-    D().setCursor(6, y + 12);  D().print("SSID: " + WifiPortal::ssid());
-    D().setCursor(6, y + 24);  D().print("Pass: " + WifiPortal::password());
+    D().setCursor(4, y + TXT_H);     D().print(WifiPortal::ssid());
+    D().setCursor(4, y + TXT_H * 2);  D().print("pw " + WifiPortal::password());
     D().setTextColor(COL_FG, COL_BG);
-    D().setCursor(6, y + 40);  D().print("Then open in a browser:");
+    D().setCursor(4, y + TXT_H * 3 + 2); D().print("Browse to:");
     D().setTextColor(COL_OK, COL_BG);
-    D().setCursor(6, y + 52);  D().print("http://" + WifiPortal::ip() + "/");
-    D().setTextColor(COL_DIM, COL_BG);
-    D().setCursor(6, y + 68);
-    D().printf("clients connected: %d", WifiPortal::clientCount());
+    D().setCursor(4, y + TXT_H * 4 + 2); D().print(WifiPortal::ip());
 
+    D().setTextSize(1);
     D().setTextColor(COL_DIM, COL_BG);
-    D().setCursor(6, kBodyBottom - 2);
-    D().print("`=stop Wi-Fi & back");
+    D().setCursor(4, kBodyBottom + 1);
+    D().printf("clients:%d   `=stop & back", WifiPortal::clientCount());
     // footer omitted: BLE is paused while the portal is up
     drawNoticeOverlay();
 }
@@ -273,22 +296,27 @@ void drawTextInput() {
     drawHeader(g_textTitle);
 
     if (g_textHint.length()) {
+        D().setTextSize(1);
         D().setTextColor(COL_DIM, COL_BG);
-        D().setCursor(8, kBodyTop + 4);
+        D().setCursor(6, kBodyTop + 2);
         D().print(g_textHint.substring(0, 38));
     }
 
     // input box
-    int boxY = kBodyTop + 22;
-    D().drawRect(6, boxY, W - 12, 18, COL_DIM);
+    int boxY = kBodyTop + 16;
+    D().drawRect(4, boxY, W - 8, TXT_H + 8, COL_DIM);
+    D().setTextSize(2);
     D().setTextColor(COL_FG, COL_BG);
-    D().setCursor(10, boxY + 5);
+    D().setCursor(8, boxY + 4);
     String shown = g_textBuf;
-    if (shown.length() > 36) shown = shown.substring(shown.length() - 36);
+    int maxShown = kMaxChars - 2;
+    if ((int)shown.length() > maxShown)
+        shown = shown.substring(shown.length() - maxShown);
     D().print(shown + "_");
 
+    D().setTextSize(1);
     D().setTextColor(COL_DIM, COL_BG);
-    D().setCursor(8, kBodyBottom - 14);
+    D().setCursor(6, kBodyBottom - 10);
     D().print("ENTER=ok  DEL=del  `=cancel");
     drawFooter();
     drawNoticeOverlay();
@@ -299,13 +327,14 @@ void drawLogView() {
     drawHeader("Session Log");
     const auto& entries = SessionLog::entries();
 
-    // show the tail that fits
-    int rows = (kBodyBottom - kBodyTop) / 10;
+    // Log is dense, so it stays at the small font to show more lines.
+    D().setTextSize(1);
+    const int helpY = kBodyBottom - 9;       // reserve a line for the hint
+    int rows = (helpY - kBodyTop) / 10;
     int total = (int)entries.size();
     int start = total - rows;
     if (start < 0) start = 0;
 
-    D().setTextSize(1);
     int y = kBodyTop;
     for (int i = start; i < total; ++i) {
         const auto& e = entries[i];
@@ -327,7 +356,7 @@ void drawLogView() {
     }
 
     D().setTextColor(COL_DIM, COL_BG);
-    D().setCursor(4, kBodyBottom - 2);
+    D().setCursor(4, helpY);
     D().print(SessionLog::sdAvailable() ? "ENTER=export SD  c=clear  `=back"
                                         : "no SD  c=clear  `=back");
     drawFooter();
@@ -336,8 +365,11 @@ void drawLogView() {
 
 void render() {
     switch (g_screen) {
+        case Screen::BleScan:
+            drawList("Select encoder", bleScanItems());
+            break;
         case Screen::Home:
-            drawList("SAXBLE  -  SAX-D setup", homeItems());
+            drawList("SAXBLE menu", homeItems());
             break;
         case Screen::CommandList:
             drawList(Commands::categories()[g_catIdx].label, commandItems());
@@ -453,10 +485,13 @@ void activateHome() {
         g_catIdx = g_cursor;
         gotoScreen(Screen::CommandList);
     } else if (g_cursor == nCats) {
-        gotoScreen(Screen::Login);
+        BleUart::startScan();
+        gotoScreen(Screen::BleScan);
     } else if (g_cursor == nCats + 1) {
-        gotoScreen(Screen::LogView);
+        gotoScreen(Screen::Login);
     } else if (g_cursor == nCats + 2) {
+        gotoScreen(Screen::LogView);
+    } else if (g_cursor == nCats + 3) {
         startWifiPortal();
     } else {
         gotoScreen(Screen::Settings);
@@ -573,6 +608,25 @@ void handleKeys(const Keyboard_Class::KeysState& st) {
     }
 
     switch (g_screen) {
+        case Screen::BleScan: {
+            int n = BleUart::deviceCount();
+            auto items = bleScanItems();      // n devices + Rescan + Skip
+            if (k == Key::Back) {
+                gotoScreen(Screen::Home);
+            } else if (k == Key::Select) {
+                if (g_cursor < n) {
+                    BleUart::connectIndex(g_cursor);
+                    notifyImpl("Connecting...");
+                    gotoScreen(Screen::Home);
+                } else if (g_cursor == n) {
+                    BleUart::startScan();
+                    notifyImpl("Rescanning...");
+                } else {
+                    gotoScreen(Screen::Home);
+                }
+            } else handleListNav(k, items.size());
+            break;
+        }
         case Screen::Home: {
             auto items = homeItems();
             if (k == Key::Select) activateHome();
@@ -672,8 +726,9 @@ void loop() {
     }
     // notice expiry forces a redraw
     if (g_notice.length() && millis() > g_noticeUntil) setDirty();
-    // refresh the portal screen so the connected-client count stays live
-    if (g_screen == Screen::WifiPortal && millis() > g_portalRefresh) {
+    // refresh the portal/scan screens so live info (clients, devices) updates
+    if ((g_screen == Screen::WifiPortal || g_screen == Screen::BleScan) &&
+        millis() > g_portalRefresh) {
         g_portalRefresh = millis() + 1000;
         setDirty();
     }
@@ -691,9 +746,15 @@ void onRxLine(const String& line) {
 
 void onBleState(BleUart::State s) {
     if (s != BleUart::State::Connected) setLoggedIn(false);
+    // On a successful connect, leave the scan list and show the menu.
+    if (s == BleUart::State::Connected && g_screen == Screen::BleScan) {
+        gotoScreen(Screen::Home);
+    }
     SessionLog::info(String("BLE: ") + BleUart::statusText());
     setDirty();
 }
+
+void onDevicesChanged() { setDirty(); }
 
 void setLoggedIn(bool in) { g_loggedIn = in; setDirty(); }
 bool loggedIn()           { return g_loggedIn; }

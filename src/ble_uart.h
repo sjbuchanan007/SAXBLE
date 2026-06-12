@@ -31,8 +31,18 @@ bool   connected();
 String statusText();          // short human-readable status for the UI
 String peerName();            // name/address of the connected peer ("" if none)
 
-void startScan();             // (re)start scanning for the encoder
+void startScan();             // (re)start scanning; clears the discovered list
 void disconnect();
+
+// --- Discovered devices (populated live while scanning) ---------------------
+struct DeviceInfo {
+    String label;   // advertised name, or address if unnamed
+    int    rssi;     // signal strength (dBm)
+    bool   hasNus;   // advertises the Nordic UART service UUID
+};
+int        deviceCount();
+DeviceInfo deviceAt(int index);
+void       connectIndex(int index);   // connect to a device from the list
 
 // Pause all BLE radio activity (disconnect + stop scanning) so Wi-Fi can use
 // the radio, then resume afterwards. While paused, loop() does nothing.
@@ -47,5 +57,6 @@ bool send(const String& line);
 // Callbacks (set once during setup).
 void onLine(std::function<void(const String&)> cb);        // a received text line
 void onStateChange(std::function<void(State)> cb);
+void onDevicesChanged(std::function<void()> cb);           // discovered list grew
 
 } // namespace BleUart

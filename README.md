@@ -30,10 +30,14 @@ Service (NUS)** — the standard that *BLE Terminal*-style apps speak:
 | Write (commands → encoder) | `6E400002-…` (Write Without Response) |
 | Notify (responses ← encoder) | `6E400003-…` |
 
-On connect the firmware subscribes to notifications and, if **auto-login** is
+On boot the firmware **scans and lists nearby Bluetooth devices** so you can
+pick the right encoder (handy when several are in range) — devices advertising
+the UART service are marked `*` and each shows its signal strength. After you
+select one it connects, subscribes to notifications and, if **auto-login** is
 on, sends the saved password. The encoder replies *"Welcome to Shire SAX
 Command Line Interface"*, which the firmware detects to light the **AUTH**
-indicator.
+indicator. You can return to the picker any time via **Bluetooth (connect)** on
+the menu.
 
 These UUIDs, the device-name filter and the write mode are all editable
 on-device (**Settings**) and saved to flash — so if the encoder turns out to
@@ -41,6 +45,9 @@ use different UUIDs, you don't need to reflash.
 
 ## Features
 
+- **Device picker** — boots into a live scan of nearby Bluetooth devices; choose
+  the encoder by name/signal strength before connecting, so you log into the
+  right unit when several are close together.
 - **Menu-driven commands** — browse *Gas Settings* / *General Settings*, choose
   a command, then enter only the valid parameters (gas channel `1`–`6`/`a`,
   numeric setpoints, text strings, or a pick-list for things like gas type).

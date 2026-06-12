@@ -17,6 +17,7 @@ void loop();   // call every main-loop iteration (after M5Cardputer.update())
 // Hooks fed by main from the BLE layer.
 void onRxLine(const String& line);
 void onBleState(BleUart::State s);
+void onDevicesChanged();   // the discovered-device list changed
 
 void setLoggedIn(bool in);
 bool loggedIn();

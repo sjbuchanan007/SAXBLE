@@ -2,6 +2,7 @@
 #include "config.h"
 #include <NimBLEDevice.h>
 #include <utility>
+#include <vector>
 
 namespace BleUart {
 namespace {
@@ -18,6 +19,18 @@ String                      g_rxBuffer;            // accumulates partial lines
 
 std::function<void(const String&)> g_lineCb;
 std::function<void(State)>          g_stateCb;
+std::function<void()>               g_devicesCb;
+
+// Devices seen during the current scan. The NimBLEAdvertisedDevice pointers stay
+// valid until the scan results are cleared (only done in startScan()).
+struct FoundDev {
+    NimBLEAdvertisedDevice* dev;
+    String addr;
+    String label;
+    int    rssi;
+    bool   hasNus;
+};
+std::vector<FoundDev> g_found;
 
 void setState(State s) {
     if (s == g_state) return;
@@ -25,17 +38,6 @@ void setState(State s) {
     if (g_stateCb) g_stateCb(s);
 }
 
-// Does this advertisement look like our encoder?
-// (NimBLE's accessors are non-const, so the pointer can't be const.)
-bool matchesTarget(NimBLEAdvertisedDevice* dev) {
-    auto& cfg = Config::get();
-    if (cfg.deviceName.length()) {
-        return dev->haveName() &&
-               String(dev->getName().c_str()) == cfg.deviceName;
-    }
-    // No name configured: match anything advertising the NUS service.
-    return dev->isAdvertisingService(NimBLEUUID(cfg.serviceUuid.c_str()));
-}
 
 // --- Notifications: split the stream into text lines ------------------------
 void onNotify(NimBLERemoteCharacteristic* /*chr*/, uint8_t* data, size_t len,
@@ -57,13 +59,27 @@ void onNotify(NimBLERemoteCharacteristic* /*chr*/, uint8_t* data, size_t len,
     }
 }
 
-// --- Scan results -----------------------------------------------------------
+// --- Scan results: collect every device so the user can pick the encoder ----
 class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     void onResult(NimBLEAdvertisedDevice* dev) override {
-        if (!matchesTarget(dev)) return;
-        NimBLEDevice::getScan()->stop();
-        g_target = dev;          // owned by scan results until the scan is cleared
-        g_doConnect = true;
+        String addr = dev->getAddress().toString().c_str();
+        for (auto& f : g_found) {           // de-dupe by address, refresh rssi
+            if (f.addr == addr) { f.rssi = dev->getRSSI(); f.dev = dev; return; }
+        }
+        auto& cfg = Config::get();
+        String name = dev->haveName() ? String(dev->getName().c_str()) : String();
+        bool hasNus =
+            dev->isAdvertisingService(NimBLEUUID(cfg.serviceUuid.c_str()));
+        g_found.push_back({dev, addr, name.length() ? name : addr,
+                           dev->getRSSI(), hasNus});
+        if (g_devicesCb) g_devicesCb();
+
+        // If a device-name filter is configured and matches, auto-connect.
+        if (cfg.deviceName.length() && name == cfg.deviceName) {
+            NimBLEDevice::getScan()->stop();
+            g_target = dev;
+            g_doConnect = true;
+        }
     }
 };
 
@@ -136,6 +152,8 @@ void begin() {
 void startScan() {
     g_doConnect = false;
     g_target = nullptr;
+    g_found.clear();
+    if (g_devicesCb) g_devicesCb();
     NimBLEScan* scan = NimBLEDevice::getScan();
     scan->setAdvertisedDeviceCallbacks(&g_scanCb, /*wantDuplicates=*/false);
     scan->setActiveScan(true);
@@ -201,6 +219,21 @@ void disconnect() {
     if (g_client && g_client->isConnected()) g_client->disconnect();
 }
 
+int deviceCount() { return (int)g_found.size(); }
+
+DeviceInfo deviceAt(int index) {
+    if (index < 0 || index >= (int)g_found.size()) return {String("?"), 0, false};
+    const FoundDev& f = g_found[index];
+    return {f.label, f.rssi, f.hasNus};
+}
+
+void connectIndex(int index) {
+    if (index < 0 || index >= (int)g_found.size()) return;
+    NimBLEDevice::getScan()->stop();
+    g_target = g_found[index].dev;
+    g_doConnect = true;
+}
+
 bool send(const String& line) {
     if (g_state != State::Connected || !g_rxChar) return false;
     String payload = line + Config::get().lineEnding;
@@ -211,5 +244,6 @@ bool send(const String& line) {
 
 void onLine(std::function<void(const String&)> cb)   { g_lineCb  = std::move(cb); }
 void onStateChange(std::function<void(State)> cb)     { g_stateCb = std::move(cb); }
+void onDevicesChanged(std::function<void()> cb)       { g_devicesCb = std::move(cb); }
 
 } // namespace BleUart

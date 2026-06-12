@@ -44,6 +44,7 @@ void setup() {
 
     BleUart::onStateChange(handleBleState);
     BleUart::onLine([](const String& line) { Ui::onRxLine(line); });
+    BleUart::onDevicesChanged([]() { Ui::onDevicesChanged(); });
     BleUart::begin();
 }
 
