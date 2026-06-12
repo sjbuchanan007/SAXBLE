@@ -230,18 +230,16 @@ void pause() {
     if (g_client && g_client->isConnected()) g_client->disconnect();
     g_rxChar = nullptr;
     g_txChar = nullptr;
-    g_client = nullptr;
-    g_found.clear();
-    // Fully release the radio so Wi-Fi gets the whole antenna (BLE+Wi-Fi
-    // coexistence otherwise starves the web server).
-    NimBLEDevice::deinit(true);
+    // NOTE: we deliberately do NOT NimBLEDevice::deinit() here - doing so while
+    // a connection is tearing down can deadlock the BLE host task and hang the
+    // device. Stopping scanning and dropping the link is enough to keep Wi-Fi
+    // responsive.
     setState(State::Idle);
 }
 
 void resume() {
     if (!g_paused) return;
     g_paused = false;
-    initRadio();
     startScan();
 }
 

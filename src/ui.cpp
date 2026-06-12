@@ -541,6 +541,13 @@ void activateHome() {
 
 // Wi-Fi shares the radio with BLE, so pause BLE before bringing up the AP.
 void startWifiPortal() {
+    // Cleanly log out of the encoder before we drop the BLE link.
+    if (BleUart::connected() && g_loggedIn) {
+        BleUart::send("Logout");
+        SessionLog::info("logout sent before Wi-Fi");
+        g_loggedIn = false;
+        delay(150);   // let it flush before we disconnect
+    }
     BleUart::pause();
     if (WifiPortal::start()) {
         gotoScreen(Screen::WifiPortal);
