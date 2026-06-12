@@ -14,18 +14,33 @@
 
 namespace {
 
-// On connect, optionally send the saved password so the CLI logs us straight in.
+constexpr int kMaxLoginAttempts = 2;   // don't loop forever on a bad password
+int g_loginAttempts = 0;
+
 void handleBleState(BleUart::State s) {
+    if (s == BleUart::State::Connected) g_loginAttempts = 0;
     Ui::onBleState(s);
-    if (s == BleUart::State::Connected) {
-        auto& cfg = Config::get();
-        if (cfg.autoLogin && cfg.lastPassword.length()) {
-            // Small settle delay so the encoder has printed its login prompt.
-            delay(300);
-            if (BleUart::send(cfg.lastPassword)) {
-                SessionLog::info("auto-login sent (password hidden)");
-            }
-        }
+}
+
+// Drive login off the encoder's actual prompt. The encoder sends "Password:"
+// (no newline) after connecting; when we see it we send the saved password.
+// On the success banner we mark ourselves logged in (handled in Ui::onRxLine).
+void handleEncoderLine(const String& line) {
+    if (Ui::loggedIn()) return;
+
+    String lower = line;
+    lower.toLowerCase();
+    if (lower.indexOf("password") < 0) return;   // not a login prompt
+
+    auto& cfg = Config::get();
+    if (cfg.autoLogin && cfg.lastPassword.length() &&
+        g_loginAttempts < kMaxLoginAttempts) {
+        g_loginAttempts++;
+        BleUart::send(cfg.lastPassword);
+        SessionLog::info("auto-login sent (password hidden)");
+    } else {
+        // Auto-login is off or exhausted — let the user pick a password.
+        Ui::promptLogin();
     }
 }
 
@@ -43,7 +58,10 @@ void setup() {
     Ui::begin();
 
     BleUart::onStateChange(handleBleState);
-    BleUart::onLine([](const String& line) { Ui::onRxLine(line); });
+    BleUart::onLine([](const String& line) {
+        Ui::onRxLine(line);
+        handleEncoderLine(line);
+    });
     BleUart::onDevicesChanged([]() { Ui::onDevicesChanged(); });
     BleUart::begin();
 }

@@ -22,6 +22,10 @@ void onDevicesChanged();   // the discovered-device list changed
 void setLoggedIn(bool in);
 bool loggedIn();
 
+// Show the password screen (e.g. when the encoder prompts and auto-login is off
+// or has failed).
+void promptLogin();
+
 // Transient on-screen message (auto-clears).
 void notify(const String& msg);
 

@@ -40,23 +40,34 @@ void setState(State s) {
 
 
 // --- Notifications: split the stream into text lines ------------------------
+// The encoder ends replies with newlines, but prompts (e.g. "Password:") have
+// no trailing newline, so we also surface the buffer when it ends in a prompt
+// character. Otherwise a prompt would sit unseen in the buffer forever.
+void emitBuffer() {
+    g_rxBuffer.trim();
+    if (g_rxBuffer.length() && g_lineCb) g_lineCb(g_rxBuffer);
+    g_rxBuffer = "";
+}
+
+bool looksLikePrompt(const String& s) {
+    if (!s.length()) return false;
+    char last = s[s.length() - 1];
+    return last == ':' || last == '>' || last == '?' || last == '#';
+}
+
 void onNotify(NimBLERemoteCharacteristic* /*chr*/, uint8_t* data, size_t len,
               bool /*isNotify*/) {
     for (size_t i = 0; i < len; ++i) {
         char c = static_cast<char>(data[i]);
         if (c == '\n') {
-            g_rxBuffer.trim();
-            if (g_rxBuffer.length() && g_lineCb) g_lineCb(g_rxBuffer);
-            g_rxBuffer = "";
+            emitBuffer();
         } else if (c != '\r') {
             g_rxBuffer += c;
-            // Guard against a peer that never sends newlines.
-            if (g_rxBuffer.length() > 512) {
-                if (g_lineCb) g_lineCb(g_rxBuffer);
-                g_rxBuffer = "";
-            }
+            if (g_rxBuffer.length() > 512) emitBuffer(); // runaway guard
         }
     }
+    // A chunk that ends on a prompt (no newline) is surfaced immediately.
+    if (looksLikePrompt(g_rxBuffer)) emitBuffer();
 }
 
 // --- Scan results: collect every device so the user can pick the encoder ----

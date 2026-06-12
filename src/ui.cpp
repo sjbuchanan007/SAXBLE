@@ -58,6 +58,7 @@ String   g_channel;
 String   g_param;
 
 bool     g_loggedIn = false;
+String   g_lastEncoderLine;        // most recent text from the encoder
 String   g_notice;
 uint32_t g_noticeUntil = 0;
 bool     g_confirmArmed = false;   // destructive commands need a second ENTER
@@ -389,7 +390,12 @@ void render() {
             break;
         }
         case Screen::Confirm:  drawConfirm();   break;
-        case Screen::Login:    drawList("Login / Password", loginItems());  break;
+        case Screen::Login:
+            // Title shows the encoder's prompt (e.g. "Password:") when present.
+            drawList(g_lastEncoderLine.length() ? g_lastEncoderLine
+                                                : String("Login / Password"),
+                     loginItems());
+            break;
         case Screen::LogView:  drawLogView();   break;
         case Screen::Settings: drawList("Settings", settingsItems()); break;
         case Screen::TextInput:drawTextInput(); break;
@@ -424,7 +430,8 @@ void sendPassword(const String& pw) {
     } else {
         notifyImpl("Not connected");
     }
-    gotoScreen(Screen::Home);
+    // Stay on the login screen; the success banner advances to the menu.
+    gotoScreen(Screen::Login);
 }
 
 // After a command is chosen, walk to the next required step.
@@ -617,7 +624,8 @@ void handleKeys(const Keyboard_Class::KeysState& st) {
                 if (g_cursor < n) {
                     BleUart::connectIndex(g_cursor);
                     notifyImpl("Connecting...");
-                    gotoScreen(Screen::Home);
+                    // Stay here; onBleState() moves to the login screen on
+                    // connect.
                 } else if (g_cursor == n) {
                     BleUart::startScan();
                     notifyImpl("Rescanning...");
@@ -737,21 +745,32 @@ void loop() {
 
 void onRxLine(const String& line) {
     SessionLog::rx(line);
+    g_lastEncoderLine = line;
     if (line.indexOf(Config::get().loginSuccessMarker) >= 0) {
         setLoggedIn(true);
         notifyImpl("Logged in");
+        if (g_screen == Screen::Login) gotoScreen(Screen::Home);
     }
     setDirty();
 }
 
 void onBleState(BleUart::State s) {
-    if (s != BleUart::State::Connected) setLoggedIn(false);
-    // On a successful connect, leave the scan list and show the menu.
-    if (s == BleUart::State::Connected && g_screen == Screen::BleScan) {
-        gotoScreen(Screen::Home);
+    if (s != BleUart::State::Connected) {
+        setLoggedIn(false);
+    } else {
+        // Connected: show the login screen so the step is visible. Auto-login
+        // (handled in main) runs in the background; on the success banner we
+        // jump to the menu automatically.
+        g_lastEncoderLine = "";
+        gotoScreen(Screen::Login);
     }
     SessionLog::info(String("BLE: ") + BleUart::statusText());
     setDirty();
+}
+
+void promptLogin() {
+    if (g_screen != Screen::Login) gotoScreen(Screen::Login);
+    notifyImpl("Enter password");
 }
 
 void onDevicesChanged() { setDirty(); }
