@@ -1,5 +1,6 @@
 #include "ble_uart.h"
 #include "config.h"
+#include "session_log.h"
 #include <NimBLEDevice.h>
 #include <utility>
 #include <vector>
@@ -96,8 +97,9 @@ class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
 
 // --- Client connection lifecycle -------------------------------------------
 class ClientCallbacks : public NimBLEClientCallbacks {
-    void onConnect(NimBLEClient* c) override {
-        c->updateConnParams(12, 12, 0, 200);
+    void onConnect(NimBLEClient* /*c*/) override {
+        // Keep the peripheral's preferred connection parameters; renegotiating
+        // here has caused some devices to drop the link immediately.
     }
     void onDisconnect(NimBLEClient* c) override {
         g_rxChar = nullptr;
@@ -121,27 +123,72 @@ bool connectToTarget() {
     }
 
     if (!g_client->connect(g_target)) {
+        SessionLog::info("connect failed");
         setState(State::Disconnected);
         return false;
     }
 
+    g_rxChar = nullptr;
+    g_txChar = nullptr;
+
+    // First try the configured (Nordic UART) service/characteristics.
     NimBLERemoteService* svc =
         g_client->getService(NimBLEUUID(cfg.serviceUuid.c_str()));
-    if (!svc) {
-        g_client->disconnect();
-        return false;
+    if (svc) {
+        NimBLERemoteCharacteristic* rx =
+            svc->getCharacteristic(NimBLEUUID(cfg.rxCharUuid.c_str()));
+        NimBLERemoteCharacteristic* tx =
+            svc->getCharacteristic(NimBLEUUID(cfg.txCharUuid.c_str()));
+        if (rx && (rx->canWrite() || rx->canWriteNoResponse())) g_rxChar = rx;
+        if (tx && (tx->canNotify() || tx->canIndicate()))       g_txChar = tx;
     }
 
-    g_rxChar = svc->getCharacteristic(NimBLEUUID(cfg.rxCharUuid.c_str()));
-    g_txChar = svc->getCharacteristic(NimBLEUUID(cfg.txCharUuid.c_str()));
+    // Fall back: enumerate everything and pick a writable + a notifying char.
+    // (Some encoders use a single characteristic that does both.)
     if (!g_rxChar || !g_txChar) {
+        SessionLog::info("scanning services for usable characteristics");
+        std::vector<NimBLERemoteService*>* services = g_client->getServices(true);
+        if (services) {
+            for (auto s : *services) {
+                std::vector<NimBLERemoteCharacteristic*>* chars =
+                    s->getCharacteristics(true);
+                if (!chars) continue;
+                for (auto ch : *chars) {
+                    bool w = ch->canWrite() || ch->canWriteNoResponse();
+                    bool n = ch->canNotify() || ch->canIndicate();
+                    SessionLog::info(
+                        String("chr ") + ch->getUUID().toString().c_str() +
+                        (w ? " W" : "") + (n ? " N" : ""));
+                    if (!g_rxChar && w) g_rxChar = ch;
+                    if (!g_txChar && n) g_txChar = ch;
+                }
+            }
+        }
+    }
+
+    // Allow a single characteristic to serve as both write and notify.
+    if (g_rxChar && !g_txChar &&
+        (g_rxChar->canNotify() || g_rxChar->canIndicate())) {
+        g_txChar = g_rxChar;
+    }
+    if (g_txChar && !g_rxChar &&
+        (g_txChar->canWrite() || g_txChar->canWriteNoResponse())) {
+        g_rxChar = g_txChar;
+    }
+
+    if (!g_rxChar && !g_txChar) {
+        SessionLog::info("no usable characteristics found");
         g_client->disconnect();
         return false;
     }
 
-    if (g_txChar->canNotify()) {
+    if (g_txChar && (g_txChar->canNotify() || g_txChar->canIndicate())) {
         g_txChar->subscribe(true, onNotify);
     }
+    SessionLog::info(
+        String("using rx=") +
+        (g_rxChar ? g_rxChar->getUUID().toString().c_str() : "none") +
+        " tx=" + (g_txChar ? g_txChar->getUUID().toString().c_str() : "none"));
 
     g_peerName = g_target->haveName()
                      ? String(g_target->getName().c_str())
@@ -156,6 +203,10 @@ void begin() {
     auto& cfg = Config::get();
     NimBLEDevice::init("SAXBLE");
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+    // Support "just works" pairing in case the encoder requires an encrypted
+    // link before it exposes its service (harmless if it doesn't).
+    NimBLEDevice::setSecurityAuth(/*bonding=*/true, /*mitm=*/false, /*sc=*/true);
+    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
     (void)cfg;
     startScan();
 }
