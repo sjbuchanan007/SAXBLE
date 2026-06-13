@@ -20,6 +20,11 @@ struct Entry {
 
 void begin();
 
+// Record the connected device. Session logs are then grouped into a per-device
+// folder on the SD card, and the device is added to the on-card registry
+// (/saxble/devices.txt) the first time it's seen.
+void setDevice(const String& name, const String& address);
+
 void add(Dir dir, const String& text);
 inline void tx(const String& s)   { add(Dir::Tx, s); }
 inline void rx(const String& s)   { add(Dir::Rx, s); }

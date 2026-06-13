@@ -18,7 +18,11 @@ constexpr int kMaxLoginAttempts = 2;   // don't loop forever on a bad password
 int g_loginAttempts = 0;
 
 void handleBleState(BleUart::State s) {
-    if (s == BleUart::State::Connected) g_loginAttempts = 0;
+    if (s == BleUart::State::Connected) {
+        g_loginAttempts = 0;
+        // Group this session's logs per device and record it in the registry.
+        SessionLog::setDevice(BleUart::peerName(), BleUart::peerAddress());
+    }
     Ui::onBleState(s);
 }
 

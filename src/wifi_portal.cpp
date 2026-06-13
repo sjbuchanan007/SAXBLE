@@ -61,6 +61,13 @@ String humanSize(size_t bytes) {
     return String(bytes / (1024.0 * 1024.0), 1) + " MB";
 }
 
+// One table row for a file at relative path `rel` (e.g. "Ward10_3c2a/session_0001.txt").
+String fileRow(const String& rel, size_t size) {
+    return "<tr><td>" + rel + "</td><td>" + humanSize(size) +
+           "</td><td><a href='/dl?f=" + rel + "'>download</a> &middot; "
+           "<a href='/view?f=" + rel + "'>view</a></td></tr>";
+}
+
 void handleIndex() {
     String page = htmlHeader("Commissioning logs");
     page += F("<a class=btn href='/export'>Save current session to SD</a>");
@@ -74,35 +81,42 @@ void handleIndex() {
     }
 
     if (!SD.exists(kLogDir)) SD.mkdir(kLogDir);
-    File dir = SD.open(kLogDir);
-    if (!dir || !dir.isDirectory()) {
-        page += F("<p class=muted>No log folder on the SD card yet.</p>");
-    } else {
+    File root = SD.open(kLogDir);
+    int count = 0;
+    if (root && root.isDirectory()) {
         page += F("<table><tr><th>File</th><th>Size</th><th></th></tr>");
-        int count = 0;
-        for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
-            if (f.isDirectory()) continue;
-            String name = baseName(String(f.name()));
-            page += "<tr><td>" + name + "</td><td>" + humanSize(f.size()) +
-                    "</td><td><a href='/dl?f=" + name + "'>download</a> &middot; "
-                    "<a href='/view?f=" + name + "'>view</a></td></tr>";
-            count++;
+        // Top-level files plus one level of per-device folders.
+        for (File e = root.openNextFile(); e; e = root.openNextFile()) {
+            String ename = baseName(String(e.name()));
+            if (e.isDirectory()) {
+                for (File f = e.openNextFile(); f; f = e.openNextFile()) {
+                    if (f.isDirectory()) continue;
+                    page += fileRow(ename + "/" + baseName(String(f.name())),
+                                    f.size());
+                    count++;
+                }
+            } else {
+                page += fileRow(ename, e.size());
+                count++;
+            }
         }
         page += F("</table>");
-        if (count == 0)
-            page += F("<p class=muted>No logs yet. Run a session, then refresh.</p>");
     }
+    if (count == 0)
+        page += F("<p class=muted>No logs yet. Run a session, then refresh.</p>");
     page += htmlFooter();
     g_server.send(200, "text/html", page);
 }
 
-// Resolve and open a requested file safely (no path traversal).
-File openRequested(const String& fname) {
-    String name = baseName(fname);          // strip any path the client sent
-    if (name.length() == 0) return File();
-    String path = String(kLogDir) + "/" + name;
+// Resolve and open a requested file safely. `rel` may include one subfolder
+// (e.g. "Ward10_3c2a/session_0001.txt"); reject any parent-directory tricks.
+File openRequested(const String& rel) {
+    if (rel.length() == 0 || rel.indexOf("..") >= 0) return File();
+    String path = String(kLogDir) + "/" + rel;
     if (!SD.exists(path)) return File();
-    return SD.open(path, FILE_READ);
+    File f = SD.open(path, FILE_READ);
+    if (f && f.isDirectory()) { f.close(); return File(); }
+    return f;
 }
 
 // Log files are small, so read the whole thing into RAM and send it in one

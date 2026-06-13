@@ -9,6 +9,11 @@ std::deque<Entry> g_entries;
 constexpr size_t  kMaxEntries = 400;   // on-device scrollback cap
 bool              g_sdOk = false;
 
+// Connected device (set via setDevice); session logs go into g_devFolder.
+String g_devName;
+String g_devAddr;
+String g_devFolder;
+
 // microSD pins for the Cardputer / Stamp S3.
 // NOTE: verify against the Cardputer ADV schematic — if export fails, these are
 // the first thing to check. They are isolated here so there's one place to fix.
@@ -16,6 +21,26 @@ constexpr int kSdSck  = 40;
 constexpr int kSdMiso = 39;
 constexpr int kSdMosi = 14;
 constexpr int kSdCs   = 12;
+
+// Keep only filesystem-friendly characters; cap the length.
+String sanitize(const String& s) {
+    String o;
+    for (size_t i = 0; i < s.length() && o.length() < 16; ++i) {
+        char c = s[i];
+        bool ok = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
+                  (c >= 'a' && c <= 'z');
+        o += ok ? c : '_';
+    }
+    return o.length() ? o : String("dev");
+}
+
+// Address hex with the colons removed.
+String hexOnly(const String& addr) {
+    String h;
+    for (size_t i = 0; i < addr.length(); ++i)
+        if (addr[i] != ':') h += addr[i];
+    return h;
+}
 
 const char* dirTag(Dir d) {
     switch (d) {
@@ -63,6 +88,42 @@ size_t size()                      { return g_entries.size(); }
 void clear()                       { g_entries.clear(); }
 bool sdAvailable()                 { return g_sdOk; }
 
+// Add this device to /saxble/devices.txt the first time we see its address.
+void updateRegistry() {
+    if (!g_sdOk) return;
+    String path = String(logDir()) + "/devices.txt";
+    File rf = SD.open(path, FILE_READ);
+    if (rf) {
+        String all = rf.readString();
+        rf.close();
+        if (g_devAddr.length() && all.indexOf(g_devAddr) >= 0) return; // known
+    }
+    File wf = SD.open(path, FILE_APPEND);
+    if (wf) {
+        wf.println(g_devAddr + "\t" +
+                   (g_devName.length() ? g_devName : String("(no name)")));
+        wf.close();
+    }
+}
+
+void setDevice(const String& name, const String& address) {
+    g_devName = name;
+    g_devAddr = address;
+    if (name.length())
+        g_devFolder = String(logDir()) + "/" + sanitize(name) + "_" +
+                      hexOnly(address).substring(
+                          hexOnly(address).length() >= 4
+                              ? hexOnly(address).length() - 4 : 0);
+    else
+        g_devFolder = String(logDir()) + "/dev_" + hexOnly(address);
+
+    if (mountSd()) {
+        if (!SD.exists(logDir())) SD.mkdir(logDir());
+        if (!SD.exists(g_devFolder)) SD.mkdir(g_devFolder);
+        updateRegistry();
+    }
+}
+
 String exportToSd(String* outError) {
     if (!g_sdOk) {
         // Try once more — a card may have been inserted after boot.
@@ -73,23 +134,29 @@ String exportToSd(String* outError) {
         }
     }
 
-    if (!SD.exists("/saxble")) SD.mkdir("/saxble");
+    if (!SD.exists(logDir())) SD.mkdir(logDir());
+    String folder = g_devFolder.length() ? g_devFolder : String(logDir());
+    if (!SD.exists(folder)) SD.mkdir(folder);
 
     // Sessions are numbered; uptime alone isn't a wall clock, so we just need a
     // unique, sortable filename per export.
-    char path[40];
+    String path;
     for (int i = 1; i < 10000; ++i) {
-        snprintf(path, sizeof(path), "/saxble/session_%04d.txt", i);
+        char n[24];
+        snprintf(n, sizeof(n), "/session_%04d.txt", i);
+        path = folder + n;
         if (!SD.exists(path)) break;
     }
 
-    File f = SD.open(path, FILE_WRITE);
+    File f = SD.open(path.c_str(), FILE_WRITE);
     if (!f) {
         if (outError) *outError = "Open failed";
         return "";
     }
 
     f.println("SAX-D commissioning session log");
+    f.println("Device:  " + (g_devName.length() ? g_devName : String("(unnamed)")));
+    f.println("Address: " + (g_devAddr.length() ? g_devAddr : String("(unknown)")));
     f.println("Timestamps are relative to device power-on (H:MM:SS.mmm).");
     f.println("Legend: >> sent   << received   -- note");
     f.println("----------------------------------------");

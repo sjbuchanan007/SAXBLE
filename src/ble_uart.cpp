@@ -16,6 +16,7 @@ NimBLEAdvertisedDevice*     g_target    = nullptr; // found, awaiting connect
 volatile bool               g_doConnect = false;
 bool                        g_paused    = false;
 String                      g_peerName;
+String                      g_peerAddr;
 String                      g_rxBuffer;            // accumulates partial lines
 
 std::function<void(const String&)> g_lineCb;
@@ -110,6 +111,7 @@ class ClientCallbacks : public NimBLEClientCallbacks {
         g_rxChar = nullptr;
         g_txChar = nullptr;
         g_peerName = "";
+        g_peerAddr = "";
         setState(State::Disconnected);
     }
 };
@@ -183,9 +185,9 @@ bool connectToTarget() {
     SessionLog::info(String("rx=") + g_rxChar->getUUID().toString().c_str());
     SessionLog::info(String("subscribed ") + subscribed + " notify char(s)");
 
-    g_peerName = g_target->haveName()
-                     ? String(g_target->getName().c_str())
-                     : String(g_target->getAddress().toString().c_str());
+    g_peerAddr = String(g_target->getAddress().toString().c_str());
+    g_peerName = g_target->haveName() ? String(g_target->getName().c_str())
+                                      : String();
     setState(State::Connected);
     return true;
 }
@@ -265,14 +267,15 @@ void loop() {
 
 State  state()     { return g_state; }
 bool   connected() { return g_state == State::Connected; }
-String peerName()  { return g_peerName; }
+String peerName()  { return g_peerName.length() ? g_peerName : g_peerAddr; }
+String peerAddress() { return g_peerAddr; }
 
 String statusText() {
     switch (g_state) {
         case State::Idle:         return "Idle";
         case State::Scanning:     return "Scanning...";
         case State::Connecting:   return "Connecting...";
-        case State::Connected:    return "Linked: " + g_peerName;
+        case State::Connected:    return "Linked: " + peerName();
         case State::Disconnected: return "Disconnected";
     }
     return "?";

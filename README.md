@@ -59,8 +59,11 @@ use different UUIDs, you don't need to reflash.
   documented default `studio3`). Pick one to log in, or type a new one and it's
   saved for next time.
 - **Commissioning log** — every command sent and every reply received is
-  captured with a timestamp. **Export to microSD** writes a text file
-  (`/saxble/session_####.txt`) you can drop into a commissioning report.
+  captured with a timestamp. **Export to microSD** writes a text file into a
+  **per-device folder** (`/saxble/<device>_<id>/session_####.txt`, with the
+  device name + address in the header) so each encoder's records stay together.
+- **Device registry** — every device you connect to is recorded once (name +
+  address) in `/saxble/devices.txt` for traceability.
 - **Wi-Fi log export** — the Cardputer brings up its own Wi-Fi hotspot and a web
   page; connect a phone/laptop and download the logs in a browser, no card
   removal or cable needed (see below).

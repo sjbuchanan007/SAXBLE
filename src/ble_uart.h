@@ -30,6 +30,7 @@ State  state();
 bool   connected();
 String statusText();          // short human-readable status for the UI
 String peerName();            // name/address of the connected peer ("" if none)
+String peerAddress();         // address of the connected peer ("" if none)
 
 void startScan();             // (re)start scanning; clears the discovered list
 void disconnect();
