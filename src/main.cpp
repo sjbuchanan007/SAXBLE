@@ -2,14 +2,13 @@
 //
 // Acts as a BLE central toward the SAX-D encoder (same role as the "BLE
 // Terminal" phone app): connect, log in, then drive the encoder's command-line
-// interface from on-device menus. The session is captured for a commissioning
-// report and can be exported to microSD.
+// interface from on-device menus. The session is captured to microSD (one
+// folder per device); pull the card to read the logs for a commissioning report.
 
 #include <M5Cardputer.h>
 #include "config.h"
 #include "ble_uart.h"
 #include "session_log.h"
-#include "usb_msc.h"
 #include "ui.h"
 
 namespace {
@@ -63,21 +62,15 @@ void setup() {
     SessionLog::begin();
     SessionLog::info("SAXBLE started");
 
-    // Bring up USB Mass Storage now (drive stays detached until the user opens
-    // the USB export screen). Needs the SD mounted first, which begin() did.
-    UsbMsc::begin();
-
     Ui::begin();
 
-    // Register callbacks now; BLE itself is only started when the user picks
-    // "Connect to Encoder" (and fully shut down again on disconnect), so BLE
-    // and Wi-Fi are never powered at the same time.
     BleUart::onStateChange(handleBleState);
     BleUart::onLine([](const String& line) {
         Ui::onRxLine(line);
         handleEncoderLine(line);
     });
     BleUart::onDevicesChanged([]() { Ui::onDevicesChanged(); });
+    BleUart::begin();   // start scanning for the encoder right away
 }
 
 void loop() {

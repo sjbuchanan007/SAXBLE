@@ -7,9 +7,9 @@ encoder's command-line interface from baked-in menus: pick a command, fill in
 only the parameters it accepts, send.
 
 > **Status: in active hardware testing.** BLE connect/login, the **full command
-> set**, parameter entry, microSD capture, per-device folders and **USB Mass
-> Storage export** are implemented. See [`docs/COMMANDS.md`](docs/COMMANDS.md)
-> for the command list.
+> set**, parameter entry, and microSD capture into per-device folders are
+> implemented. Logs are retrieved by reading the SD card in a reader. See
+> [`docs/COMMANDS.md`](docs/COMMANDS.md) for the command list.
 
 ## Why the Cardputer ADV
 
@@ -29,17 +29,13 @@ Service (NUS)** — the standard that *BLE Terminal*-style apps speak:
 | Write (commands → encoder) | `6E400002-…` (Write Without Response) |
 | Notify (responses ← encoder) | `6E400003-…` |
 
-The firmware is **mode-based**: from the start screen you choose **Connect to
-Encoder** or **USB Export**, and you're only ever in one mode at a time.
-
-- **Connect to Encoder** starts BLE and **scans/lists nearby devices** so you can
-  pick the right encoder (handy when several are in range) — devices advertising
-  the UART service are marked `*` and each shows its signal strength. After you
-  select one it connects, subscribes to notifications and, if **auto-login** is
-  on, sends the saved password. The encoder replies *"Welcome to Shire SAX…"*,
-  which lights the **AUTH** indicator. **Disconnect** or **Logout** shuts BLE
-  down and returns you to the start screen.
-- **USB Export** presents the microSD card as a USB drive — see below.
+On boot the firmware **scans and lists nearby devices** so you can pick the
+right encoder (handy when several are in range) — devices advertising the UART
+service are marked `*` and each shows its signal strength. After you select one
+it connects, subscribes to notifications and, if **auto-login** is on, sends the
+saved password. The encoder replies *"Welcome to Shire SAX…"*, which lights the
+**AUTH** indicator. **Disconnect** or **Logout** drops the link and returns to
+the scan list.
 
 These UUIDs, the device-name filter and the write mode are all editable
 on-device (**Settings**) and saved to flash — so if the encoder turns out to
@@ -66,22 +62,15 @@ use different UUIDs, you don't need to reflash.
   device name + address in the header) so each encoder's records stay together.
 - **Device registry** — every device you connect to is recorded once (name +
   address) in `/saxble/devices.txt` for traceability.
-- **USB export** — the microSD card mounts as a normal USB drive on a computer,
-  so you can drag off the `/saxble` logs with no radio or app involved (see below).
 - **On-device settings** — toggle auto-login / write-with-response, set a device
   name filter, rescan, reset to defaults.
 
-## USB export
+## Getting the logs off
 
-From the start screen choose **USB Export**, then plug the Cardputer into a
-computer with a USB-C cable. The SD card appears as a removable drive; copy the
-**`/saxble`** folder (per-device session logs + `devices.txt`) off it. Press
-**`` ` ``** to eject and return to the start screen.
-
-This uses the ESP32-S3's native USB (Mass Storage) — no Wi-Fi, no web server,
-nothing to crash. The trade-off is that USB runs in OTG mode, so **flashing new
-firmware needs the chip in download mode**: hold the **G0** button, tap
-reset/power, release G0, then `pio run -t upload`.
+Pop the **microSD card** into a card reader and copy the **`/saxble`** folder —
+it contains one subfolder per device (session logs) plus `devices.txt`. (USB
+Mass Storage was tried but the SD-over-SPI path wouldn't mount reliably; the
+card reader is the dependable route and keeps flashing one-click.)
 
 ## Controls (Cardputer keyboard)
 
@@ -115,10 +104,8 @@ changed APIs and would not compile). One-time setup:
    The first build downloads the ESP32 toolchain and the pinned libraries
    (`M5Cardputer`, `NimBLE-Arduino`) automatically — give it a few minutes.
 
-> **Flashing in USB-OTG mode.** Because USB Mass Storage needs OTG mode, the
-> chip no longer auto-resets into the bootloader. To upload: **hold G0, tap the
-> reset/power button, release G0** (this enters download mode), then flash. If an
-> upload ever fails with a connection/port error, that's the fix.
+If the board isn't detected, hold the Cardputer's **G0** button while plugging
+in to force the bootloader, then upload.
 
 ### From the command line
 
@@ -145,7 +132,6 @@ pio device monitor      # serial log @ 115200
 | `src/commands.{h,cpp}` | declarative command tables + line builder |
 | `src/ble_uart.{h,cpp}` | BLE central: scan, connect, notify, write, pause/resume |
 | `src/session_log.{h,cpp}` | session capture + microSD export |
-| `src/usb_msc.{h,cpp}` | USB Mass Storage — mounts the SD card as a USB drive |
 | `src/ui.{h,cpp}` | menus, parameter entry, log view, settings |
 | `docs/COMMANDS.md` | full SAX-D command reference + how to extend |
 
@@ -155,4 +141,3 @@ pio device monitor      # serial log @ 115200
 - Confirm exact command token spelling/casing against a live encoder.
 - Optional real-time-clock for wall-clock timestamps in the report.
 - On-device UUID editing screen (currently editable via name filter + defaults).
-- Optional USB Mass Storage mode (expose the SD card as a USB drive).

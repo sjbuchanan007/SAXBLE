@@ -2,7 +2,6 @@
 #include "commands.h"
 #include "config.h"
 #include "session_log.h"
-#include "usb_msc.h"
 #include <M5Cardputer.h>
 #include <algorithm>
 #include <vector>
@@ -34,7 +33,6 @@ constexpr int kMaxChars = W / TXT_W;               // 20 chars per line at size 
 
 // ----- Screens --------------------------------------------------------------
 enum class Screen : uint8_t {
-    ModeSelect,
     BleScan,
     Home,
     CommandList,
@@ -45,11 +43,10 @@ enum class Screen : uint8_t {
     LogView,
     Settings,
     TextInput,
-    UsbExport,
 };
 
 // ----- State ----------------------------------------------------------------
-Screen   g_screen = Screen::ModeSelect;
+Screen   g_screen = Screen::BleScan;
 int      g_cursor = 0;       // selection index on the current list
 int      g_scroll = 0;       // first visible row
 bool     g_dirty  = true;
@@ -77,7 +74,7 @@ String     g_textHint;
 // ----- Forward declarations (definitions appear in dependency order below) --
 void drawNoticeOverlay();
 void beginParamStep();
-void exitEncoderMode();
+void disconnectToScan();
 
 // ----- Small helpers --------------------------------------------------------
 // Explicit return type (the ESP32 Arduino core builds with C++11, which has no
@@ -110,12 +107,7 @@ void gotoScreen(Screen s) {
 
 // ----- Building list contents per screen ------------------------------------
 
-// Top-level mode select (start screen): you are in exactly one mode at a time.
-std::vector<String> modeItems() {
-    return {"Connect to Encoder", "USB Export (SD drive)"};
-}
-
-// Home items (encoder mode only): command categories, then tools.
+// Home items (shown once connected): command categories, then tools.
 std::vector<String> homeItems() {
     std::vector<String> v;
     for (auto& c : Commands::categories()) v.push_back(c.label);
@@ -298,25 +290,6 @@ void drawConfirm() {
     drawNoticeOverlay();
 }
 
-void drawUsbExport() {
-    D().fillScreen(COL_BG);
-    drawHeader("USB Export");
-
-    D().setTextSize(2);
-    int y = kBodyTop + 4;
-    D().setTextColor(COL_OK, COL_BG);
-    D().setCursor(4, y);             D().print("SD = USB drive");
-    D().setTextColor(COL_FG, COL_BG);
-    D().setCursor(4, y + TXT_H + 4);  D().print("Plug into a PC");
-    D().setCursor(4, y + TXT_H * 2 + 4); D().print("and copy the");
-    D().setCursor(4, y + TXT_H * 3 + 4); D().print("/saxble folder.");
-
-    D().setTextSize(1);
-    D().setTextColor(COL_DIM, COL_BG);
-    D().setCursor(4, kBodyBottom + 1);
-    D().print("eject in Finder, then `=back");
-    drawNoticeOverlay();
-}
 
 void drawTextInput() {
     D().fillScreen(COL_BG);
@@ -392,9 +365,6 @@ void drawLogView() {
 
 void render() {
     switch (g_screen) {
-        case Screen::ModeSelect:
-            drawList("SAXBLE", modeItems());
-            break;
         case Screen::BleScan:
             drawList("Select encoder", bleScanItems());
             break;
@@ -428,7 +398,6 @@ void render() {
         case Screen::LogView:  drawLogView();   break;
         case Screen::Settings: drawList("Settings", settingsItems()); break;
         case Screen::TextInput:drawTextInput(); break;
-        case Screen::UsbExport:drawUsbExport(); break;
     }
     g_dirty = false;
 }
@@ -447,9 +416,9 @@ void sendCurrentCommand() {
     }
     g_param = "";
     if (isLogout) {
-        // Logout ends the session: drop the link and return to the start screen.
+        // Logout ends the session: drop the link and return to the scan list.
         delay(150);             // let the command flush first
-        exitEncoderMode();
+        disconnectToScan();
     } else {
         gotoScreen(Screen::CommandList);
     }
@@ -522,39 +491,12 @@ void confirmTextInput() {
     }
 }
 
-// ----- Mode transitions (exactly one radio stack active at a time) ----------
-
-void enterEncoderMode() {
-    UsbMsc::setActive(false);      // detach the USB drive so we can write the SD
-    BleUart::begin();              // init BLE + start scanning
-    gotoScreen(Screen::BleScan);
-}
-
-void exitEncoderMode() {
-    gotoScreen(Screen::ModeSelect); // set first so disconnect events don't redirect
+// Drop the encoder link and return to the scan list (BLE keeps scanning).
+void disconnectToScan() {
     g_loggedIn = false;
-    BleUart::end();                 // disconnect + fully shut down BLE
-    UsbMsc::setActive(true);        // re-present the drive for the host
-}
-
-void enterUsbMode() {
-    if (!UsbMsc::available()) UsbMsc::begin();   // e.g. card inserted after boot
-    if (UsbMsc::available()) {
-        UsbMsc::setActive(true);   // present the SD card as a USB drive
-        gotoScreen(Screen::UsbExport);
-    } else {
-        notifyImpl("No SD card");
-    }
-}
-
-void exitUsbMode() {
-    // Leave the drive presented; the host stays mounted (eject in Finder).
-    gotoScreen(Screen::ModeSelect);
-}
-
-void activateMode() {
-    if (g_cursor == 0) enterEncoderMode();
-    else               enterUsbMode();
+    g_autoLoginSuppressed = false;
+    BleUart::disconnect();
+    gotoScreen(Screen::BleScan);
 }
 
 void activateHome() {
@@ -567,7 +509,7 @@ void activateHome() {
     } else if (g_cursor == nCats + 1) {
         gotoScreen(Screen::Settings);
     } else {
-        exitEncoderMode();          // Disconnect
+        disconnectToScan();         // Disconnect
     }
 }
 
@@ -664,17 +606,11 @@ void handleKeys(const Keyboard_Class::KeysState& st) {
     }
 
     switch (g_screen) {
-        case Screen::ModeSelect: {
-            auto items = modeItems();
-            if (k == Key::Select) activateMode();
-            else handleListNav(k, items.size());
-            break;
-        }
         case Screen::BleScan: {
             auto items = bleScanItems();      // also rebuilds g_scanMap
             int shown = (int)g_scanMap.size(); // device rows; then 3 actions
             if (k == Key::Back) {
-                exitEncoderMode();            // leave encoder mode entirely
+                // BleScan is the root screen; back does nothing.
             } else if (k == Key::Select) {
                 if (g_cursor < shown) {
                     BleUart::connectIndex(g_scanMap[g_cursor]);
@@ -695,7 +631,7 @@ void handleKeys(const Keyboard_Class::KeysState& st) {
         }
         case Screen::Home: {
             auto items = homeItems();
-            if (k == Key::Back) exitEncoderMode();
+            if (k == Key::Back) disconnectToScan();
             else if (k == Key::Select) activateHome();
             else handleListNav(k, items.size());
             break;
@@ -769,9 +705,6 @@ void handleKeys(const Keyboard_Class::KeysState& st) {
                                          : ("Export: " + err));
             }
             break;
-        case Screen::UsbExport:
-            if (k == Key::Back) exitUsbMode();
-            break;
         default: break;
     }
 }
@@ -831,8 +764,8 @@ void onBleState(BleUart::State s) {
         gotoScreen(Screen::Login);
     } else {
         setLoggedIn(false);
-        // An unexpected drop while using the encoder: go back to the scan list
-        // so the user can reconnect. Intentional exits already set ModeSelect.
+        // Dropped link while using the encoder: go back to the scan list to
+        // reconnect.
         if (s == BleUart::State::Disconnected && isLiveEncoderScreen(g_screen))
             gotoScreen(Screen::BleScan);
     }
