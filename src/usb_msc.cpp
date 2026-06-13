@@ -69,11 +69,12 @@ bool begin() {
     g_msc.onStartStop(onStartStop);
     g_msc.onRead(onRead);
     g_msc.onWrite(onWrite);
-    g_msc.mediaPresent(false);          // detached until the user activates export
+    g_msc.mediaPresent(true);           // present from boot so the host mounts it
     g_msc.begin(sectors, kSec);
 
     USB.begin();
-    g_ready = true;
+    g_ready  = true;
+    g_active = true;
     return true;
 }
 

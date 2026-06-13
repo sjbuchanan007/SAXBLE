@@ -314,7 +314,7 @@ void drawUsbExport() {
     D().setTextSize(1);
     D().setTextColor(COL_DIM, COL_BG);
     D().setCursor(4, kBodyBottom + 1);
-    D().print("`=eject & back");
+    D().print("eject in Finder, then `=back");
     drawNoticeOverlay();
 }
 
@@ -525,6 +525,7 @@ void confirmTextInput() {
 // ----- Mode transitions (exactly one radio stack active at a time) ----------
 
 void enterEncoderMode() {
+    UsbMsc::setActive(false);      // detach the USB drive so we can write the SD
     BleUart::begin();              // init BLE + start scanning
     gotoScreen(Screen::BleScan);
 }
@@ -533,6 +534,7 @@ void exitEncoderMode() {
     gotoScreen(Screen::ModeSelect); // set first so disconnect events don't redirect
     g_loggedIn = false;
     BleUart::end();                 // disconnect + fully shut down BLE
+    UsbMsc::setActive(true);        // re-present the drive for the host
 }
 
 void enterUsbMode() {
@@ -546,7 +548,7 @@ void enterUsbMode() {
 }
 
 void exitUsbMode() {
-    UsbMsc::setActive(false);      // detach the drive
+    // Leave the drive presented; the host stays mounted (eject in Finder).
     gotoScreen(Screen::ModeSelect);
 }
 
