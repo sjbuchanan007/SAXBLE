@@ -10,6 +10,19 @@ namespace {
 
 WebServer g_server(80);
 bool      g_active = false;
+TaskHandle_t g_task = nullptr;
+
+// The web server runs on its own task so handleClient() never blocks the main
+// loop (that previously froze the keyboard, making the screen impossible to
+// exit, and throttled transfers).
+void serverTask(void*) {
+    while (g_active) {
+        g_server.handleClient();
+        vTaskDelay(2 / portTICK_PERIOD_MS);
+    }
+    g_task = nullptr;
+    vTaskDelete(nullptr);
+}
 
 constexpr const char* kLogDir = "/saxble";
 
@@ -165,21 +178,25 @@ bool start() {
     g_server.begin();
 
     g_active = true;
+    // 8 KB stack: enough for handleClient + buffering a log file into a String.
+    xTaskCreatePinnedToCore(serverTask, "saxweb", 8192, nullptr, 1, &g_task, 0);
     return true;
 }
 
 void stop() {
     if (!g_active) return;
+    g_active = false;                       // signal the task to finish
+    for (int i = 0; i < 50 && g_task; ++i) delay(10);  // wait up to 500ms
+    if (g_task) { vTaskDelete(g_task); g_task = nullptr; }
     g_server.stop();
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_OFF);
-    g_active = false;
 }
 
 bool active() { return g_active; }
 
 void loop() {
-    if (g_active) g_server.handleClient();
+    // The web server runs on its own task (serverTask); nothing to do here.
 }
 
 String ssid()     { return Config::get().wifiSsid; }
