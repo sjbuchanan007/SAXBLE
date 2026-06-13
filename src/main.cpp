@@ -16,6 +16,14 @@ namespace {
 constexpr int kMaxLoginAttempts = 2;   // don't loop forever on a bad password
 int g_loginAttempts = 0;
 
+// Auto-login is deferred out of the BLE notify callback into the main loop:
+// sending the password from inside the callback (1ms after the prompt) didn't
+// reliably go out, and the encoder also needs a moment after printing
+// "Password:" before it accepts input.
+volatile bool g_loginPending = false;
+uint32_t      g_loginPromptMs = 0;
+constexpr uint32_t kLoginSettleMs = 500;
+
 void handleBleState(BleUart::State s) {
     if (s == BleUart::State::Connected) {
         g_loginAttempts = 0;
@@ -41,14 +49,26 @@ void handleEncoderLine(const String& line) {
     auto& cfg = Config::get();
     if (cfg.autoLogin && !Ui::autoLoginSuppressed() && cfg.lastPassword.length() &&
         g_loginAttempts < kMaxLoginAttempts) {
-        g_loginAttempts++;
-        BleUart::send(cfg.lastPassword);
-        SessionLog::info("auto-login sent (password hidden)");
+        // Defer the actual send to loop() (out of this BLE-callback context).
+        g_loginPending = true;
+        g_loginPromptMs = millis();
     } else {
         // Auto-login off, suppressed (explicit logout), or exhausted — let the
         // user pick a password.
         Ui::promptLogin();
     }
+}
+
+// Called from loop(): send the deferred auto-login password once the encoder
+// has had a moment to be ready for input.
+void serviceAutoLogin() {
+    if (!g_loginPending) return;
+    if (millis() - g_loginPromptMs < kLoginSettleMs) return;
+    g_loginPending = false;
+    if (Ui::loggedIn() || !BleUart::connected()) return;
+    g_loginAttempts++;
+    BleUart::send(Config::get().lastPassword);
+    SessionLog::info("auto-login sent (password hidden)");
 }
 
 } // namespace
@@ -76,6 +96,7 @@ void setup() {
 void loop() {
     M5Cardputer.update();
     Ui::loop();
-    BleUart::loop();        // no-op unless we're in encoder mode
+    BleUart::loop();
+    serviceAutoLogin();     // sends the deferred password after the settle delay
     delay(5);
 }

@@ -116,7 +116,7 @@ const CommandDef kGeneralCommands[] = {
      nullptr, nullptr, 0, "Reboot the encoder", true},
     {"gen_help",     "Help (list)",   "help",       false, ParamType::None,
      nullptr, nullptr, 0, "List general commands", false},
-    {"gen_gashelp",  "Gas help (list)","gashelp",   false, ParamType::None,
+    {"gen_gashelp",  "Gas help (list)","help gas",   false, ParamType::None,
      nullptr, nullptr, 0, "List gas commands", false},
 };
 
