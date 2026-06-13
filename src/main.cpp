@@ -9,7 +9,7 @@
 #include "config.h"
 #include "ble_uart.h"
 #include "session_log.h"
-#include "wifi_portal.h"
+#include "usb_msc.h"
 #include "ui.h"
 
 namespace {
@@ -63,6 +63,10 @@ void setup() {
     SessionLog::begin();
     SessionLog::info("SAXBLE started");
 
+    // Bring up USB Mass Storage now (drive stays detached until the user opens
+    // the USB export screen). Needs the SD mounted first, which begin() did.
+    UsbMsc::begin();
+
     Ui::begin();
 
     // Register callbacks now; BLE itself is only started when the user picks
@@ -78,10 +82,7 @@ void setup() {
 
 void loop() {
     M5Cardputer.update();
-    // Handle the keyboard first so the UI (e.g. exiting the Wi-Fi screen) stays
-    // responsive even when the web server is busy serving a client.
     Ui::loop();
-    WifiPortal::loop();     // no-op unless the portal is active
-    BleUart::loop();        // no-op while BLE is paused for Wi-Fi
+    BleUart::loop();        // no-op unless we're in encoder mode
     delay(5);
 }

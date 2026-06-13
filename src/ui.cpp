@@ -2,7 +2,7 @@
 #include "commands.h"
 #include "config.h"
 #include "session_log.h"
-#include "wifi_portal.h"
+#include "usb_msc.h"
 #include <M5Cardputer.h>
 #include <algorithm>
 #include <vector>
@@ -45,7 +45,7 @@ enum class Screen : uint8_t {
     LogView,
     Settings,
     TextInput,
-    WifiPortal,
+    UsbExport,
 };
 
 // ----- State ----------------------------------------------------------------
@@ -112,7 +112,7 @@ void gotoScreen(Screen s) {
 
 // Top-level mode select (start screen): you are in exactly one mode at a time.
 std::vector<String> modeItems() {
-    return {"Connect to Encoder", "Wi-Fi Log Export"};
+    return {"Connect to Encoder", "USB Export (SD drive)"};
 }
 
 // Home items (encoder mode only): command categories, then tools.
@@ -298,27 +298,23 @@ void drawConfirm() {
     drawNoticeOverlay();
 }
 
-void drawWifiPortal() {
+void drawUsbExport() {
     D().fillScreen(COL_BG);
-    drawHeader("Wi-Fi Export");
+    drawHeader("USB Export");
 
     D().setTextSize(2);
-    int y = kBodyTop + 2;
-    D().setTextColor(COL_FG, COL_BG);
-    D().setCursor(4, y);            D().print("Join Wi-Fi:");
+    int y = kBodyTop + 4;
     D().setTextColor(COL_OK, COL_BG);
-    D().setCursor(4, y + TXT_H);     D().print(WifiPortal::ssid());
-    D().setCursor(4, y + TXT_H * 2);  D().print("pw " + WifiPortal::password());
+    D().setCursor(4, y);             D().print("SD = USB drive");
     D().setTextColor(COL_FG, COL_BG);
-    D().setCursor(4, y + TXT_H * 3 + 2); D().print("Browse to:");
-    D().setTextColor(COL_OK, COL_BG);
-    D().setCursor(4, y + TXT_H * 4 + 2); D().print(WifiPortal::ip());
+    D().setCursor(4, y + TXT_H + 4);  D().print("Plug into a PC");
+    D().setCursor(4, y + TXT_H * 2 + 4); D().print("and copy the");
+    D().setCursor(4, y + TXT_H * 3 + 4); D().print("/saxble folder.");
 
     D().setTextSize(1);
     D().setTextColor(COL_DIM, COL_BG);
     D().setCursor(4, kBodyBottom + 1);
-    D().printf("clients:%d   `=stop & back", WifiPortal::clientCount());
-    // footer omitted: BLE is paused while the portal is up
+    D().print("`=eject & back");
     drawNoticeOverlay();
 }
 
@@ -432,7 +428,7 @@ void render() {
         case Screen::LogView:  drawLogView();   break;
         case Screen::Settings: drawList("Settings", settingsItems()); break;
         case Screen::TextInput:drawTextInput(); break;
-        case Screen::WifiPortal:drawWifiPortal(); break;
+        case Screen::UsbExport:drawUsbExport(); break;
     }
     g_dirty = false;
 }
@@ -539,23 +535,24 @@ void exitEncoderMode() {
     BleUart::end();                 // disconnect + fully shut down BLE
 }
 
-void enterWifiMode() {
-    // BLE is already fully off here (we only reach mode-select with BLE down).
-    if (WifiPortal::start()) {
-        gotoScreen(Screen::WifiPortal);
+void enterUsbMode() {
+    if (!UsbMsc::available()) UsbMsc::begin();   // e.g. card inserted after boot
+    if (UsbMsc::available()) {
+        UsbMsc::setActive(true);   // present the SD card as a USB drive
+        gotoScreen(Screen::UsbExport);
     } else {
-        notifyImpl("Wi-Fi failed to start");
+        notifyImpl("No SD card");
     }
 }
 
-void exitWifiMode() {
-    WifiPortal::stop();
+void exitUsbMode() {
+    UsbMsc::setActive(false);      // detach the drive
     gotoScreen(Screen::ModeSelect);
 }
 
 void activateMode() {
     if (g_cursor == 0) enterEncoderMode();
-    else               enterWifiMode();
+    else               enterUsbMode();
 }
 
 void activateHome() {
@@ -770,8 +767,8 @@ void handleKeys(const Keyboard_Class::KeysState& st) {
                                          : ("Export: " + err));
             }
             break;
-        case Screen::WifiPortal:
-            if (k == Key::Back) exitWifiMode();
+        case Screen::UsbExport:
+            if (k == Key::Back) exitUsbMode();
             break;
         default: break;
     }
@@ -794,9 +791,8 @@ void loop() {
     }
     // notice expiry forces a redraw
     if (g_notice.length() && millis() > g_noticeUntil) setDirty();
-    // refresh the portal/scan screens so live info (clients, devices) updates
-    if ((g_screen == Screen::WifiPortal || g_screen == Screen::BleScan) &&
-        millis() > g_portalRefresh) {
+    // refresh the scan screen so the live device list updates
+    if (g_screen == Screen::BleScan && millis() > g_portalRefresh) {
         g_portalRefresh = millis() + 1000;
         setDirty();
     }

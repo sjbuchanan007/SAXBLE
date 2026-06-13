@@ -6,11 +6,10 @@ Terminal* app and hand-typing commands, you connect, log in and drive the
 encoder's command-line interface from baked-in menus: pick a command, fill in
 only the parameters it accepts, send.
 
-> **Status: feature-complete firmware, untested on hardware.** BLE connection,
-> login flow, the **full command set**, parameter entry, microSD capture and
-> **Wi-Fi log export** are all implemented. It has not yet been compiled or run
-> on a physical Cardputer ADV — `pio run` on your machine is the first real
-> validation. See [`docs/COMMANDS.md`](docs/COMMANDS.md) for the command list.
+> **Status: in active hardware testing.** BLE connect/login, the **full command
+> set**, parameter entry, microSD capture, per-device folders and **USB Mass
+> Storage export** are implemented. See [`docs/COMMANDS.md`](docs/COMMANDS.md)
+> for the command list.
 
 ## Why the Cardputer ADV
 
@@ -31,8 +30,7 @@ Service (NUS)** — the standard that *BLE Terminal*-style apps speak:
 | Notify (responses ← encoder) | `6E400003-…` |
 
 The firmware is **mode-based**: from the start screen you choose **Connect to
-Encoder** or **Wi-Fi Log Export**, and only one radio stack runs at a time (so
-Bluetooth and Wi-Fi never fight over the single antenna).
+Encoder** or **USB Export**, and you're only ever in one mode at a time.
 
 - **Connect to Encoder** starts BLE and **scans/lists nearby devices** so you can
   pick the right encoder (handy when several are in range) — devices advertising
@@ -41,7 +39,7 @@ Bluetooth and Wi-Fi never fight over the single antenna).
   on, sends the saved password. The encoder replies *"Welcome to Shire SAX…"*,
   which lights the **AUTH** indicator. **Disconnect** or **Logout** shuts BLE
   down and returns you to the start screen.
-- **Wi-Fi Log Export** runs only the web server (BLE fully off) — see below.
+- **USB Export** presents the microSD card as a USB drive — see below.
 
 These UUIDs, the device-name filter and the write mode are all editable
 on-device (**Settings**) and saved to flash — so if the encoder turns out to
@@ -68,24 +66,22 @@ use different UUIDs, you don't need to reflash.
   device name + address in the header) so each encoder's records stay together.
 - **Device registry** — every device you connect to is recorded once (name +
   address) in `/saxble/devices.txt` for traceability.
-- **Wi-Fi log export** — the Cardputer brings up its own Wi-Fi hotspot and a web
-  page; connect a phone/laptop and download the logs in a browser, no card
-  removal or cable needed (see below).
+- **USB export** — the microSD card mounts as a normal USB drive on a computer,
+  so you can drag off the `/saxble` logs with no radio or app involved (see below).
 - **On-device settings** — toggle auto-login / write-with-response, set a device
   name filter, rescan, reset to defaults.
 
-## Wi-Fi log export
+## USB export
 
-From the home menu choose **Wi-Fi Log Export**. The screen shows an SSID
-(`SAXBLE-Setup`), a password (`saxble1234`) and a URL (`http://192.168.4.1/`).
-Join that Wi-Fi from a phone or laptop, open the URL, and you get a page listing
-every log on the SD card with **download** / **view** links, plus a button to
-save the current in-progress session first.
+From the start screen choose **USB Export**, then plug the Cardputer into a
+computer with a USB-C cable. The SD card appears as a removable drive; copy the
+**`/saxble`** folder (per-device session logs + `devices.txt`) off it. Press
+**`` ` ``** to eject and return to the start screen.
 
-Because Wi-Fi and BLE share the single radio, entering this screen **pauses the
-BLE link**; pressing back stops the hotspot and resumes scanning. So the normal
-flow is: do your commissioning over BLE, then switch to Wi-Fi to collect the
-report. (SSID/password are editable in `src/config.cpp`.)
+This uses the ESP32-S3's native USB (Mass Storage) — no Wi-Fi, no web server,
+nothing to crash. The trade-off is that USB runs in OTG mode, so **flashing new
+firmware needs the chip in download mode**: hold the **G0** button, tap
+reset/power, release G0, then `pio run -t upload`.
 
 ## Controls (Cardputer keyboard)
 
@@ -119,8 +115,10 @@ changed APIs and would not compile). One-time setup:
    The first build downloads the ESP32 toolchain and the pinned libraries
    (`M5Cardputer`, `NimBLE-Arduino`) automatically — give it a few minutes.
 
-If the board isn't detected, hold the Cardputer's **G0** button while plugging in
-to force the bootloader, then upload.
+> **Flashing in USB-OTG mode.** Because USB Mass Storage needs OTG mode, the
+> chip no longer auto-resets into the bootloader. To upload: **hold G0, tap the
+> reset/power button, release G0** (this enters download mode), then flash. If an
+> upload ever fails with a connection/port error, that's the fix.
 
 ### From the command line
 
@@ -147,7 +145,7 @@ pio device monitor      # serial log @ 115200
 | `src/commands.{h,cpp}` | declarative command tables + line builder |
 | `src/ble_uart.{h,cpp}` | BLE central: scan, connect, notify, write, pause/resume |
 | `src/session_log.{h,cpp}` | session capture + microSD export |
-| `src/wifi_portal.{h,cpp}` | Wi-Fi hotspot + web page for downloading logs |
+| `src/usb_msc.{h,cpp}` | USB Mass Storage — mounts the SD card as a USB drive |
 | `src/ui.{h,cpp}` | menus, parameter entry, log view, settings |
 | `docs/COMMANDS.md` | full SAX-D command reference + how to extend |
 
