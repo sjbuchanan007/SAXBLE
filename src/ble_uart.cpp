@@ -208,6 +208,27 @@ void begin() {
     startScan();
 }
 
+void end() {
+    g_doConnect = false;
+    NimBLEScan* scan = NimBLEDevice::getScan();
+    if (scan && scan->isScanning()) scan->stop();
+    if (g_client && g_client->isConnected()) {
+        g_client->disconnect();
+        // Wait for the disconnect to complete before deinit; deinitialising
+        // mid-teardown is what previously deadlocked the host task.
+        for (int i = 0; i < 100 && g_client->isConnected(); ++i) delay(10);
+    }
+    g_rxChar = nullptr;
+    g_txChar = nullptr;
+    g_client = nullptr;
+    g_peerName = "";
+    g_peerAddr = "";
+    g_found.clear();
+    NimBLEDevice::deinit(true);
+    g_state = State::Idle;
+    if (g_stateCb) g_stateCb(State::Idle);
+}
+
 void startScan() {
     g_doConnect = false;
     g_target = nullptr;

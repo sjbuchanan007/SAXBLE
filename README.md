@@ -30,14 +30,18 @@ Service (NUS)** — the standard that *BLE Terminal*-style apps speak:
 | Write (commands → encoder) | `6E400002-…` (Write Without Response) |
 | Notify (responses ← encoder) | `6E400003-…` |
 
-On boot the firmware **scans and lists nearby Bluetooth devices** so you can
-pick the right encoder (handy when several are in range) — devices advertising
-the UART service are marked `*` and each shows its signal strength. After you
-select one it connects, subscribes to notifications and, if **auto-login** is
-on, sends the saved password. The encoder replies *"Welcome to Shire SAX
-Command Line Interface"*, which the firmware detects to light the **AUTH**
-indicator. You can return to the picker any time via **Bluetooth (connect)** on
-the menu.
+The firmware is **mode-based**: from the start screen you choose **Connect to
+Encoder** or **Wi-Fi Log Export**, and only one radio stack runs at a time (so
+Bluetooth and Wi-Fi never fight over the single antenna).
+
+- **Connect to Encoder** starts BLE and **scans/lists nearby devices** so you can
+  pick the right encoder (handy when several are in range) — devices advertising
+  the UART service are marked `*` and each shows its signal strength. After you
+  select one it connects, subscribes to notifications and, if **auto-login** is
+  on, sends the saved password. The encoder replies *"Welcome to Shire SAX…"*,
+  which lights the **AUTH** indicator. **Disconnect** or **Logout** shuts BLE
+  down and returns you to the start screen.
+- **Wi-Fi Log Export** runs only the web server (BLE fully off) — see below.
 
 These UUIDs, the device-name filter and the write mode are all editable
 on-device (**Settings**) and saved to flash — so if the encoder turns out to

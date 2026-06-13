@@ -7,8 +7,9 @@
 // lists the commissioning logs on the microSD card and lets a phone/laptop
 // download them in a browser — no network or cable required.
 //
-// Wi-Fi and BLE share the single radio, so the caller should pause BLE
-// (BleUart::pause()) before starting the portal and resume it after stopping.
+// Wi-Fi and BLE share the single radio, so the caller must have BLE fully shut
+// down (BleUart::end()) before starting the portal. The two are never run at
+// the same time.
 
 namespace WifiPortal {
 

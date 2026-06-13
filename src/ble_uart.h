@@ -24,6 +24,7 @@ enum class State : uint8_t {
 };
 
 void begin();
+void end();                   // fully shut down BLE (disconnect + deinit radio)
 void loop();                  // call every iteration of the main loop
 
 State  state();

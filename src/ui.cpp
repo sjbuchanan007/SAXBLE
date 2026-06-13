@@ -34,6 +34,7 @@ constexpr int kMaxChars = W / TXT_W;               // 20 chars per line at size 
 
 // ----- Screens --------------------------------------------------------------
 enum class Screen : uint8_t {
+    ModeSelect,
     BleScan,
     Home,
     CommandList,
@@ -48,7 +49,7 @@ enum class Screen : uint8_t {
 };
 
 // ----- State ----------------------------------------------------------------
-Screen   g_screen = Screen::BleScan;
+Screen   g_screen = Screen::ModeSelect;
 int      g_cursor = 0;       // selection index on the current list
 int      g_scroll = 0;       // first visible row
 bool     g_dirty  = true;
@@ -76,8 +77,7 @@ String     g_textHint;
 // ----- Forward declarations (definitions appear in dependency order below) --
 void drawNoticeOverlay();
 void beginParamStep();
-void startWifiPortal();
-void stopWifiPortal();
+void exitEncoderMode();
 
 // ----- Small helpers --------------------------------------------------------
 // Explicit return type (the ESP32 Arduino core builds with C++11, which has no
@@ -110,15 +110,18 @@ void gotoScreen(Screen s) {
 
 // ----- Building list contents per screen ------------------------------------
 
-// Home items: each command category, then the fixed tools.
+// Top-level mode select (start screen): you are in exactly one mode at a time.
+std::vector<String> modeItems() {
+    return {"Connect to Encoder", "Wi-Fi Log Export"};
+}
+
+// Home items (encoder mode only): command categories, then tools.
 std::vector<String> homeItems() {
     std::vector<String> v;
     for (auto& c : Commands::categories()) v.push_back(c.label);
-    v.push_back("Bluetooth (connect)");
-    v.push_back("Login / Password");
     v.push_back("Session Log");
-    v.push_back("Wi-Fi Log Export");
     v.push_back("Settings");
+    v.push_back("Disconnect");
     return v;
 }
 
@@ -393,11 +396,14 @@ void drawLogView() {
 
 void render() {
     switch (g_screen) {
+        case Screen::ModeSelect:
+            drawList("SAXBLE", modeItems());
+            break;
         case Screen::BleScan:
             drawList("Select encoder", bleScanItems());
             break;
         case Screen::Home:
-            drawList("SAXBLE menu", homeItems());
+            drawList("Encoder menu", homeItems());
             break;
         case Screen::CommandList:
             drawList(Commands::categories()[g_catIdx].label, commandItems());
@@ -435,21 +441,22 @@ void render() {
 
 void sendCurrentCommand() {
     String line = Commands::build(*g_cmd, g_channel, g_param);
+    bool isLogout = String(g_cmd->id) == "gen_logout";
     if (BleUart::send(line)) {
         SessionLog::tx(line);
         notifyImpl("Sent");
-        // An explicit logout: drop our AUTH state and stop auto-login from
-        // immediately logging back in at the next prompt.
-        if (String(g_cmd->id) == "gen_logout") {
-            g_loggedIn = false;
-            g_autoLoginSuppressed = true;
-        }
     } else {
         SessionLog::info("send failed (not connected): " + line);
         notifyImpl("Not connected");
     }
     g_param = "";
-    gotoScreen(Screen::CommandList);
+    if (isLogout) {
+        // Logout ends the session: drop the link and return to the start screen.
+        delay(150);             // let the command flush first
+        exitEncoderMode();
+    } else {
+        gotoScreen(Screen::CommandList);
+    }
 }
 
 void sendPassword(const String& pw) {
@@ -519,48 +526,50 @@ void confirmTextInput() {
     }
 }
 
+// ----- Mode transitions (exactly one radio stack active at a time) ----------
+
+void enterEncoderMode() {
+    BleUart::begin();              // init BLE + start scanning
+    gotoScreen(Screen::BleScan);
+}
+
+void exitEncoderMode() {
+    gotoScreen(Screen::ModeSelect); // set first so disconnect events don't redirect
+    g_loggedIn = false;
+    BleUart::end();                 // disconnect + fully shut down BLE
+}
+
+void enterWifiMode() {
+    // BLE is already fully off here (we only reach mode-select with BLE down).
+    if (WifiPortal::start()) {
+        gotoScreen(Screen::WifiPortal);
+    } else {
+        notifyImpl("Wi-Fi failed to start");
+    }
+}
+
+void exitWifiMode() {
+    WifiPortal::stop();
+    gotoScreen(Screen::ModeSelect);
+}
+
+void activateMode() {
+    if (g_cursor == 0) enterEncoderMode();
+    else               enterWifiMode();
+}
+
 void activateHome() {
-    auto items = homeItems();
     int nCats = (int)Commands::categories().size();
     if (g_cursor < nCats) {
         g_catIdx = g_cursor;
         gotoScreen(Screen::CommandList);
     } else if (g_cursor == nCats) {
-        BleUart::startScan();
-        gotoScreen(Screen::BleScan);
-    } else if (g_cursor == nCats + 1) {
-        gotoScreen(Screen::Login);
-    } else if (g_cursor == nCats + 2) {
         gotoScreen(Screen::LogView);
-    } else if (g_cursor == nCats + 3) {
-        startWifiPortal();
-    } else {
+    } else if (g_cursor == nCats + 1) {
         gotoScreen(Screen::Settings);
-    }
-}
-
-// Wi-Fi shares the radio with BLE, so pause BLE before bringing up the AP.
-void startWifiPortal() {
-    // Cleanly log out of the encoder before we drop the BLE link.
-    if (BleUart::connected() && g_loggedIn) {
-        BleUart::send("Logout");
-        SessionLog::info("logout sent before Wi-Fi");
-        g_loggedIn = false;
-        delay(150);   // let it flush before we disconnect
-    }
-    BleUart::pause();
-    if (WifiPortal::start()) {
-        gotoScreen(Screen::WifiPortal);
     } else {
-        BleUart::resume();
-        notifyImpl("Wi-Fi failed to start");
+        exitEncoderMode();          // Disconnect
     }
-}
-
-void stopWifiPortal() {
-    WifiPortal::stop();
-    BleUart::resume();
-    gotoScreen(Screen::Home);
 }
 
 void activateSettings() {
@@ -656,11 +665,17 @@ void handleKeys(const Keyboard_Class::KeysState& st) {
     }
 
     switch (g_screen) {
+        case Screen::ModeSelect: {
+            auto items = modeItems();
+            if (k == Key::Select) activateMode();
+            else handleListNav(k, items.size());
+            break;
+        }
         case Screen::BleScan: {
             auto items = bleScanItems();      // also rebuilds g_scanMap
             int shown = (int)g_scanMap.size(); // device rows; then 3 actions
             if (k == Key::Back) {
-                gotoScreen(Screen::Home);
+                exitEncoderMode();            // leave encoder mode entirely
             } else if (k == Key::Select) {
                 if (g_cursor < shown) {
                     BleUart::connectIndex(g_scanMap[g_cursor]);
@@ -681,7 +696,8 @@ void handleKeys(const Keyboard_Class::KeysState& st) {
         }
         case Screen::Home: {
             auto items = homeItems();
-            if (k == Key::Select) activateHome();
+            if (k == Key::Back) exitEncoderMode();
+            else if (k == Key::Select) activateHome();
             else handleListNav(k, items.size());
             break;
         }
@@ -755,7 +771,7 @@ void handleKeys(const Keyboard_Class::KeysState& st) {
             }
             break;
         case Screen::WifiPortal:
-            if (k == Key::Back) stopWifiPortal();
+            if (k == Key::Back) exitWifiMode();
             break;
         default: break;
     }
@@ -798,16 +814,29 @@ void onRxLine(const String& line) {
     setDirty();
 }
 
+// True for screens that only make sense while in encoder mode and connected.
+bool isLiveEncoderScreen(Screen s) {
+    return s == Screen::Login || s == Screen::Home ||
+           s == Screen::CommandList || s == Screen::Channel ||
+           s == Screen::ParamEnum || s == Screen::Confirm ||
+           s == Screen::Settings || s == Screen::LogView ||
+           s == Screen::TextInput;
+}
+
 void onBleState(BleUart::State s) {
-    if (s != BleUart::State::Connected) {
-        setLoggedIn(false);
-    } else {
+    if (s == BleUart::State::Connected) {
         // Connected: show the login screen so the step is visible. Auto-login
         // (handled in main) runs in the background; on the success banner we
         // jump to the menu automatically.
         g_lastEncoderLine = "";
         g_autoLoginSuppressed = false;   // fresh connection, allow auto-login
         gotoScreen(Screen::Login);
+    } else {
+        setLoggedIn(false);
+        // An unexpected drop while using the encoder: go back to the scan list
+        // so the user can reconnect. Intentional exits already set ModeSelect.
+        if (s == BleUart::State::Disconnected && isLiveEncoderScreen(g_screen))
+            gotoScreen(Screen::BleScan);
     }
     SessionLog::info(String("BLE: ") + BleUart::statusText());
     setDirty();

@@ -65,13 +65,15 @@ void setup() {
 
     Ui::begin();
 
+    // Register callbacks now; BLE itself is only started when the user picks
+    // "Connect to Encoder" (and fully shut down again on disconnect), so BLE
+    // and Wi-Fi are never powered at the same time.
     BleUart::onStateChange(handleBleState);
     BleUart::onLine([](const String& line) {
         Ui::onRxLine(line);
         handleEncoderLine(line);
     });
     BleUart::onDevicesChanged([]() { Ui::onDevicesChanged(); });
-    BleUart::begin();
 }
 
 void loop() {
