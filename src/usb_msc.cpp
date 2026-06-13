@@ -4,6 +4,15 @@
 #include "USB.h"
 #include "USBMSC.h"
 
+// Present the card to the host as write-protected so it mounts READ-ONLY and
+// never tries to write (e.g. the FAT "dirty" bit), which was failing the mount
+// on macOS. We only ever copy logs *off*, so read-only is exactly right. This
+// is a weak TinyUSB callback; defining it here overrides the default.
+extern "C" bool tud_msc_is_writable_cb(uint8_t lun) {
+    (void)lun;
+    return false;
+}
+
 namespace UsbMsc {
 namespace {
 
