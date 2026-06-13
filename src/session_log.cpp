@@ -67,12 +67,14 @@ String stamp(uint32_t ms) {
 
 void begin() {
     SPI.begin(kSdSck, kSdMiso, kSdMosi, kSdCs);
-    g_sdOk = SD.begin(kSdCs, SPI);
+    // max_files=10 so listing folders + opening a file for download doesn't
+    // exhaust the FATFS file handles.
+    g_sdOk = SD.begin(kSdCs, SPI, 4000000, "/sd", 10);
 }
 
 bool mountSd() {
     if (g_sdOk) return true;
-    g_sdOk = SD.begin(kSdCs, SPI);
+    g_sdOk = SD.begin(kSdCs, SPI, 4000000, "/sd", 10);
     return g_sdOk;
 }
 
@@ -127,7 +129,7 @@ void setDevice(const String& name, const String& address) {
 String exportToSd(String* outError) {
     if (!g_sdOk) {
         // Try once more — a card may have been inserted after boot.
-        g_sdOk = SD.begin(kSdCs, SPI);
+        g_sdOk = SD.begin(kSdCs, SPI, 4000000, "/sd", 10);
         if (!g_sdOk) {
             if (outError) *outError = "No SD card";
             return "";

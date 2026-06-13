@@ -192,8 +192,9 @@ bool start() {
     g_server.begin();
 
     g_active = true;
-    // 8 KB stack: enough for handleClient + buffering a log file into a String.
-    xTaskCreatePinnedToCore(serverTask, "saxweb", 8192, nullptr, 1, &g_task, 0);
+    // Generous stack: handleClient + lwIP + buffering a log file can use a lot;
+    // too small a stack overflows and resets the chip mid-download.
+    xTaskCreatePinnedToCore(serverTask, "saxweb", 16384, nullptr, 1, &g_task, 0);
     return true;
 }
 
