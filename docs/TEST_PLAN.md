@@ -18,12 +18,12 @@ You can also tick the boxes here as you go.
   - `Gas Settings → List settings → a` (dumps all gases) — note it / keep the log.
   - `General Settings → Settings` — **look for a firmware/version string** and
     send it to me.
-- **Pick a spare gas channel** for write tests — one that is **not a live gas**.
-  From your last dump, gases 3–6 are `off`, so **use channel 6** below
-  (shown as `X`). Avoid 1 (O2) and 2 (MA_4).
+- This is a **bench demo unit** (not a live hospital panel), so you can test
+  everything freely — including the destructive commands and `factory`. The
+  write tests below use **channel 4** (`X` = 4) just to keep the configured
+  gases 1–3 intact, but on a demo unit any channel is fine.
 - **`⚠` = destructive / disruptive** — these need the two-step confirm on the
-  device (ENTER to arm, ENTER again to send) and are grouped at the end. Don't
-  run them until the safe tests pass.
+  device (ENTER to arm, ENTER again to send) and are grouped at the end.
 
 Menu path reminder: `Gas Settings → <command> → <channel> → <value>` and
 `General Settings → <command> → <value>`.
@@ -49,52 +49,52 @@ Menu path reminder: `Gas Settings → <command> → <channel> → <value>` and
 | 8 | General → Mute timer → `10` | `mute 10` | `OK` (check in Settings) | [ ] |
 | 9 | General → Mute timer → `0` | `mute 0` | `OK` (restore) | [ ] |
 
-## Phase 3 — Gas enable & pressure display (spare channel `X` = 6)
+## Phase 3 — Gas enable & pressure display (spare channel `X` = 4)
 
 | # | Do this | Sends | Expect | Pass |
 |---|---------|-------|--------|:----:|
-| 10 | Gas → Enable → `6` | `gas 6 on` | `OK`; list shows `Condition: on` | [ ] |
-| 11 | Gas → Pressure: show → `6` | `gas 6 press_on` | `OK`; Display = pressure on always | [ ] |
-| 12 | Gas → Pressure: in alarm → `6` | `gas 6 press_al` | `OK`; Display changes | [ ] |
-| 13 | Gas → Pressure: on test → `6` | `gas 6 press_eng` | `OK`; Display changes | [ ] |
-| 14 | Gas → Pressure: hide → `6` | `gas 6 press_off` | `OK`; Display changes | [ ] |
-| 15 | Gas → Disable → `6` | `gas 6 off` | `OK`; `Condition: off` | [ ] |
+| 10 | Gas → Enable → `4` | `gas 4 on` | `OK`; list shows `Condition: on` | [ ] |
+| 11 | Gas → Pressure: show → `4` | `gas 4 press_on` | `OK`; Display = pressure on always | [ ] |
+| 12 | Gas → Pressure: in alarm → `4` | `gas 4 press_al` | `OK`; Display changes | [ ] |
+| 13 | Gas → Pressure: on test → `4` | `gas 4 press_eng` | `OK`; Display changes | [ ] |
+| 14 | Gas → Pressure: hide → `4` | `gas 4 press_off` | `OK`; Display changes | [ ] |
+| 15 | Gas → Disable → `4` | `gas 4 off` | `OK`; `Condition: off` | [ ] |
 
-*(re-enable with `gas 6 on` before the next phases so the list shows the fields)*
+*(re-enable with `gas 4 on` before the next phases so the list shows the fields)*
 
-## Phase 4 — Gas text strings (spare channel `X` = 6)
+## Phase 4 — Gas text strings (spare channel `X` = 4)
 
-Verify each with `gas 6 list` — check the text, and that `\n` shows as a line break.
-
-| # | Do this | Sends | Expect | Pass |
-|---|---------|-------|--------|:----:|
-| 16 | Gas → Name → `6` → `TestGas` | `gas 6 name TestGas` | `OK` | [ ] |
-| 17 | Gas → Normal text → `6` → `Normal` | `gas 6 normal Normal` | `OK` | [ ] |
-| 18 | Gas → High text → `6` → `High\nPressure` | `gas 6 high High\nPressure` | `OK`; wraps to 2 lines | [ ] |
-| 19 | Gas → Drop text → `6` → `Pressure\nDrop` | `gas 6 drop Pressure\nDrop` | `OK` | [ ] |
-| 20 | Gas → Low text → `6` → `Low\nPressure` | `gas 6 low Low\nPressure` | `OK` | [ ] |
-| 21 | Gas → Fault text → `6` → `Signal\nFault` | `gas 6 fault Signal\nFault` | `OK` | [ ] |
-
-## Phase 5 — Setpoints & differentials (spare channel `X` = 6)
-
-Verify with `gas 6 list` (High/Drop/Low Alarm + Hi/Pd/Lo_Diff).
+Verify each with `gas 4 list` — check the text, and that `\n` shows as a line break.
 
 | # | Do this | Sends | Expect | Pass |
 |---|---------|-------|--------|:----:|
-| 22 | Gas → Hi pressure set → `6` → `5.6` | `gas 6 hi_set 5.6` | `OK` | [ ] |
-| 23 | Gas → Pressure drop set → `6` → `3.55` | `gas 6 pd_set 3.55` | `OK` | [ ] |
-| 24 | Gas → Lo pressure set → `6` → `3.35` | `gas 6 lo_set 3.35` | `OK` | [ ] |
-| 25 | Gas → Hi differential → `6` → `0.20` | `gas 6 hi_diff 0.20` | `OK` | [ ] |
-| 26 | Gas → Drop differential → `6` → `0.10` | `gas 6 pd_diff 0.10` | `OK` | [ ] |
-| 27 | Gas → Lo differential → `6` → `0.20` | `gas 6 lo_diff 0.20` | `OK` | [ ] |
+| 16 | Gas → Name → `4` → `TestGas` | `gas 4 name TestGas` | `OK` | [ ] |
+| 17 | Gas → Normal text → `4` → `Normal` | `gas 4 normal Normal` | `OK` | [ ] |
+| 18 | Gas → High text → `4` → `High\nPressure` | `gas 4 high High\nPressure` | `OK`; wraps to 2 lines | [ ] |
+| 19 | Gas → Drop text → `4` → `Pressure\nDrop` | `gas 4 drop Pressure\nDrop` | `OK` | [ ] |
+| 20 | Gas → Low text → `4` → `Low\nPressure` | `gas 4 low Low\nPressure` | `OK` | [ ] |
+| 21 | Gas → Fault text → `4` → `Signal\nFault` | `gas 4 fault Signal\nFault` | `OK` | [ ] |
 
-## Phase 6 — Units & type (spare channel `X` = 6)
+## Phase 5 — Setpoints & differentials (spare channel `X` = 4)
+
+Verify with `gas 4 list` (High/Drop/Low Alarm + Hi/Pd/Lo_Diff).
 
 | # | Do this | Sends | Expect | Pass |
 |---|---------|-------|--------|:----:|
-| 28 | Gas → Units → `6` → `PSI` | `gas 6 units PSI` | `OK`; list Units = PSI | [ ] |
-| 29 | Gas → Units → `6` → `Bar` | `gas 6 units Bar` | `OK` (restore) | [ ] |
-| 30 | Gas → Type → `6` → `N2` | `gas 6 type N2` | `OK`; loads N2 defaults (overwrites ch.6) | [ ] |
+| 22 | Gas → Hi pressure set → `4` → `5.6` | `gas 4 hi_set 5.6` | `OK` | [ ] |
+| 23 | Gas → Pressure drop set → `4` → `3.55` | `gas 4 pd_set 3.55` | `OK` | [ ] |
+| 24 | Gas → Lo pressure set → `4` → `3.35` | `gas 4 lo_set 3.35` | `OK` | [ ] |
+| 25 | Gas → Hi differential → `4` → `0.20` | `gas 4 hi_diff 0.20` | `OK` | [ ] |
+| 26 | Gas → Drop differential → `4` → `0.10` | `gas 4 pd_diff 0.10` | `OK` | [ ] |
+| 27 | Gas → Lo differential → `4` → `0.20` | `gas 4 lo_diff 0.20` | `OK` | [ ] |
+
+## Phase 6 — Units & type (spare channel `X` = 4)
+
+| # | Do this | Sends | Expect | Pass |
+|---|---------|-------|--------|:----:|
+| 28 | Gas → Units → `4` → `PSI` | `gas 4 units PSI` | `OK`; list Units = PSI | [ ] |
+| 29 | Gas → Units → `4` → `Bar` | `gas 4 units Bar` | `OK` (restore) | [ ] |
+| 30 | Gas → Type → `4` → `N2` | `gas 4 type N2` | `OK`; loads N2 defaults (overwrites ch.4) | [ ] |
 
 *(also worth trying one type with the manual's old casing to confirm
 case-insensitivity, e.g. step 30 vs `n2`)*
@@ -104,20 +104,22 @@ case-insensitivity, e.g. step 30 vs `n2`)*
 | # | Do this | Sends | Expect | Pass |
 |---|---------|-------|--------|:----:|
 | 31 | General → Location → `Ward\s10` | `location Ward\s10` | `OK`; Settings shows `Ward 10` | [ ] |
-| 32 | General → Auto-logout → `15` | `logouttime 15` | `OK` (check Settings) | [ ] |
-| 33 | General → Log interval → `15` | `logtime 15` | `OK` (check Settings) | [ ] |
-| 34 | General → Log dump | `logdump` | log data (may be long) | [ ] |
-| 35 ⚠ | General → Modbus → `1 1` | `modbus 1 1` | `OK`; changes Modbus addr/baud (BMS only) | [ ] |
+| 32 | General → Engineer → `Test\sEng` | `engineer Test\sEng` | `OK`; Settings `Engineer No` updates *(verify)* | [ ] |
+| 33 | General → Screen saver → `2` | `screensave 2` | `OK`; Settings `Screen saver: 2 Minutes` | [ ] |
+| 34 | General → Auto-logout → `15` | `logouttime 15` | `OK` (check Settings) | [ ] |
+| 35 | General → Log interval → `15` | `logtime 15` | `OK` (check Settings) | [ ] |
+| 36 | General → Log dump | `logdump` | log data (may be long) | [ ] |
+| 37 | General → Modbus → `1 1` | `modbus 1 1` | `OK`; changes Modbus addr/baud | [ ] |
 
-## Phase 8 — Calibration ⚠ (spare channel `6` only; affects readings)
+## Phase 8 — Calibration ⚠ (spare channel `4` only; affects readings)
 
 > Only run these if you understand the effect — they change the pressure
 > reading scaling/zero. Record the originals from your baseline dump first.
 
 | # | Do this | Sends | Expect | Pass |
 |---|---------|-------|--------|:----:|
-| 36 ⚠ | Gas → Calibrate point → `6` → `<known>` | `gas 6 cal <value>` | `OK` | [ ] |
-| 37 ⚠ | Gas → Atmosphere zero → `6` → `0` | `gas 6 atm 0` | `OK` | [ ] |
+| 38 ⚠ | Gas → Calibrate point → `4` → `<known>` | `gas 4 cal <value>` | `OK` | [ ] |
+| 39 ⚠ | Gas → Atmosphere zero → `4` → `0` | `gas 4 atm 0` | `OK` | [ ] |
 
 ## Phase 9 — Destructive / session (LAST)
 
@@ -125,17 +127,17 @@ case-insensitivity, e.g. step 30 vs `n2`)*
 
 | # | Do this | Sends | Expect | Pass |
 |---|---------|-------|--------|:----:|
-| 38 ⚠ | General → Log clear | `logclear` | `OK`; log emptied (verify `logdump`) | [ ] |
-| 39 ⚠ | General → Change password → `studio3` | `password studio3` | `OK`; **keep it the same** so auto-login still works | [ ] |
-| 40 | General → Logout (in menu = Disconnect) | `logout` | session ends, returns to scan list | [ ] |
-| 41 ⚠ | General → Reboot | `reboot` | encoder reboots; link drops; back to scan | [ ] |
-| 42 ⚠ | General → Factory reset | `factory` | **wipes all config** — only if you intend to reconfigure | [ ] |
+| 40 ⚠ | General → Log clear | `logclear` | `OK`; log emptied (verify `logdump`) | [ ] |
+| 41 ⚠ | General → Change password → `studio3` | `password studio3` | `OK`; **keep it the same** so auto-login still works | [ ] |
+| 42 | General → Logout (in menu = Disconnect) | `logout` | session ends, returns to scan list | [ ] |
+| 43 ⚠ | General → Reboot | `reboot` | encoder reboots; link drops; back to scan | [ ] |
+| 44 ⚠ | General → Factory reset | `factory` | **wipes all config** — only if you intend to reconfigure | [ ] |
 
 ## After testing — restore
 
-- Re-run `gas 6 list` / `Settings` and compare to the baseline; reset channel 6
-  to `off` and restore anything you changed (or `factory` + reconfigure if you
-  went that far).
+- Re-run `gas 4 list` / `Settings` and compare to the baseline; reset channel 4
+  to `off` and restore anything you changed (or `factory` + reconfigure — fine
+  on a demo unit).
 - Pull the SD card and send me the session log(s) — I'll review every reply and
   fix any command that didn't behave.
 
@@ -145,6 +147,5 @@ case-insensitivity, e.g. step 30 vs `n2`)*
   nothing at all, or a garbled response).
 - Whether `\n` in text strings renders as a line break in `list`.
 - Whether gas `type` accepts both `N2` and `n2` (case sensitivity).
-- The firmware/version string from `settings`.
-- What `engineer` and `screensave` do (run `help engineer` if the encoder
-  supports per-command help) — so I can wire them in.
+- Whether `engineer` and `screensave` behave (both now wired; `engineer` syntax
+  is a best guess from the `Engineer No` field — confirm it's right).

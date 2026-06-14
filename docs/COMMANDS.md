@@ -68,6 +68,8 @@ Tokens match the encoder's own `help` output (lowercase).
 | `password` ⚠ | Change password | Text    | sets a new login password |
 | `modbus`     | Modbus          | Text    | `<address> <baud>` (addr 1–127; baud 0=9600, 1=19200, 2=38400, 3=115200) |
 | `location`   | Location        | Text    | use `\s` for spaces, e.g. `Ward\s10` |
+| `engineer`   | Engineer        | Text    | sets the "Engineer No" identifier *(verify)* |
+| `screensave` | Screen saver    | Numeric | screen-saver timeout in minutes |
 | `settings`   | Settings        | None    | list system settings |
 | `logtime`    | Log interval    | Numeric | minutes between log entries |
 | `logdump`    | Log dump        | None    | list the log data |
@@ -77,8 +79,7 @@ Tokens match the encoder's own `help` output (lowercase).
 | `help`       | Help (list)     | None    | list general commands |
 | `help gas`   | Gas help (list) | None    | list gas commands |
 
-**Not yet wired** (present in the encoder's `help` but syntax unknown):
-`engineer`, `screensave`.
+Tested against firmware **`V002_RC302`** (build `2401172149`, RN4870 V1.40).
 
 ---
 
