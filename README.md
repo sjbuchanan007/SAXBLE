@@ -6,10 +6,12 @@ Terminal* app and hand-typing commands, you connect, log in and drive the
 encoder's command-line interface from baked-in menus: pick a command, fill in
 only the parameters it accepts, send.
 
-> **Status: in active hardware testing.** BLE connect/login, the **full command
-> set**, parameter entry, and microSD capture into per-device folders are
-> implemented. Logs are retrieved by reading the SD card in a reader. See
-> [`docs/COMMANDS.md`](docs/COMMANDS.md) for the command list.
+> **Status: verified on hardware** against SAX-D firmware **`V002_RC302`**
+> (RN4870 V1.40). BLE connect, auto-login, the **full command set** (gas +
+> general), parameter entry, destructive-command Y/N auto-confirm, graceful
+> reconnect-after-reboot, and microSD capture into per-device folders are all
+> working. See [`docs/COMMANDS.md`](docs/COMMANDS.md) and
+> [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md).
 
 ## Why the Cardputer ADV
 
