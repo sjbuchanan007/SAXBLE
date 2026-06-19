@@ -23,6 +23,10 @@ void setLoggedIn(bool in);
 bool loggedIn();
 bool autoLoginSuppressed();   // true after an explicit Logout, until reconnect/login
 
+// A destructive command was just sent and is awaiting the encoder's Y/N prompt.
+bool awaitEncoderConfirm();
+void clearEncoderConfirm();
+
 // Show the password screen (e.g. when the encoder prompts and auto-login is off
 // or has failed).
 void promptLogin();

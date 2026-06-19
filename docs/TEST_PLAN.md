@@ -123,7 +123,10 @@ case-insensitivity, e.g. step 30 vs `n2`)*
 
 ## Phase 9 — Destructive / session (LAST)
 
-> Do these last and deliberately. Each needs the two-step confirm.
+> Do these last and deliberately. On the device each needs the two-step confirm
+> (ENTER to arm, ENTER to send). The encoder then asks `Y or N`, which the
+> firmware now **auto-answers `Y`** for you — so these will actually execute
+> (in the earlier run they were canceled because the Y/N wasn't answered).
 
 | # | Do this | Sends | Expect | Pass |
 |---|---------|-------|--------|:----:|

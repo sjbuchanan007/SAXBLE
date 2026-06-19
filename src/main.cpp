@@ -24,6 +24,11 @@ volatile bool g_loginPending = false;
 uint32_t      g_loginPromptMs = 0;
 constexpr uint32_t kLoginSettleMs = 500;
 
+// Deferred "Y" answer to a destructive command's "Y or N" prompt.
+volatile bool g_confirmPending = false;
+uint32_t      g_confirmPromptMs = 0;
+constexpr uint32_t kConfirmSettleMs = 300;
+
 void handleBleState(BleUart::State s) {
     if (s == BleUart::State::Connected) {
         g_loginAttempts = 0;
@@ -39,6 +44,17 @@ void handleBleState(BleUart::State s) {
 void handleEncoderLine(const String& line) {
     String lower = line;
     lower.toLowerCase();
+
+    // Destructive commands (logclear/factory/reboot/...) prompt "Y or N". If we
+    // just sent one (user confirmed on-device), answer Y (deferred to loop()).
+    if ((lower.indexOf("y or n") >= 0 || lower.indexOf("y/n") >= 0) &&
+        Ui::awaitEncoderConfirm()) {
+        Ui::clearEncoderConfirm();
+        g_confirmPending = true;
+        g_confirmPromptMs = millis();
+        return;
+    }
+
     // A login prompt looks like "Password:" — require both to avoid matching
     // command echoes (e.g. changing the password) that mention the word.
     if (lower.indexOf("password") < 0 || !line.endsWith(":")) return;
@@ -71,6 +87,16 @@ void serviceAutoLogin() {
     SessionLog::info("auto-login sent (password hidden)");
 }
 
+// Called from loop(): answer a destructive command's "Y or N" prompt with Y.
+void serviceConfirm() {
+    if (!g_confirmPending) return;
+    if (millis() - g_confirmPromptMs < kConfirmSettleMs) return;
+    g_confirmPending = false;
+    if (!BleUart::connected()) return;
+    BleUart::send("Y");
+    SessionLog::info("confirm: sent Y");
+}
+
 } // namespace
 
 void setup() {
@@ -98,5 +124,6 @@ void loop() {
     Ui::loop();
     BleUart::loop();
     serviceAutoLogin();     // sends the deferred password after the settle delay
+    serviceConfirm();       // answers a destructive command's Y/N prompt
     delay(5);
 }

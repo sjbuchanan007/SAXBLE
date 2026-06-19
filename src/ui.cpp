@@ -62,6 +62,8 @@ String   g_notice;
 uint32_t g_noticeUntil = 0;
 bool     g_confirmArmed = false;   // destructive commands need a second ENTER
 bool     g_autoLoginSuppressed = false; // set after an explicit Logout command
+bool     g_awaitConfirm = false;   // a destructive cmd was sent; answer its Y/N
+uint32_t g_awaitConfirmMs = 0;
 uint32_t g_portalRefresh = 0;      // periodic redraw while the Wi-Fi portal is up
 
 // Text-entry context: where the confirmed text should go.
@@ -410,6 +412,12 @@ void sendCurrentCommand() {
     if (BleUart::send(line)) {
         SessionLog::tx(line);
         notifyImpl("Sent");
+        // Destructive encoder commands (logclear/factory/reboot/...) reply with
+        // a "Y or N" prompt; arm auto-confirm so main answers Y when it arrives.
+        if (g_cmd->destructive) {
+            g_awaitConfirm = true;
+            g_awaitConfirmMs = millis();
+        }
     } else {
         SessionLog::info("send failed (not connected): " + line);
         notifyImpl("Not connected");
@@ -783,6 +791,13 @@ void onDevicesChanged() { setDirty(); }
 void setLoggedIn(bool in) { g_loggedIn = in; setDirty(); }
 bool loggedIn()           { return g_loggedIn; }
 bool autoLoginSuppressed() { return g_autoLoginSuppressed; }
+
+// A destructive command was sent within the last few seconds and is awaiting a
+// Y/N confirmation prompt from the encoder.
+bool awaitEncoderConfirm() {
+    return g_awaitConfirm && (millis() - g_awaitConfirmMs < 5000);
+}
+void clearEncoderConfirm() { g_awaitConfirm = false; }
 void notify(const String& msg) { notifyImpl(msg); }
 
 } // namespace Ui
