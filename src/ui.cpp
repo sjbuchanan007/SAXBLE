@@ -693,10 +693,17 @@ void serviceRetype() {
     if (g_presetRunning && g_presetWaiting) g_presetStepMs = millis();
 }
 
-// Parse "YYYY-MM-DD HH:MM" and set the ESP32 real-time clock.
+// Parse 12 digits "DDMMYYYYHHMM" (separators ignored) and set the RTC.
 bool applyClock(const String& s) {
-    int Y, Mo, D, H, Mi;
-    if (sscanf(s.c_str(), "%d-%d-%d %d:%d", &Y, &Mo, &D, &H, &Mi) != 5) return false;
+    String d;
+    for (size_t i = 0; i < s.length(); ++i)
+        if (s[i] >= '0' && s[i] <= '9') d += s[i];
+    if (d.length() != 12) return false;
+    int D  = d.substring(0, 2).toInt();
+    int Mo = d.substring(2, 4).toInt();
+    int Y  = d.substring(4, 8).toInt();
+    int H  = d.substring(8, 10).toInt();
+    int Mi = d.substring(10, 12).toInt();
     if (Y < 2023 || Mo < 1 || Mo > 12 || D < 1 || D > 31 || H > 23 || Mi > 59)
         return false;
     struct tm tmv = {};
@@ -750,7 +757,7 @@ void activateSettings() {
             g_textTarget = TextTarget::SetClock;
             g_textBuf = "";
             g_textTitle = "Set date & time";
-            g_textHint = "YYYY-MM-DD HH:MM";
+            g_textHint = "DDMMYYYYHHMM digits";
             gotoScreen(Screen::TextInput);
             break;
         case 5:
@@ -953,7 +960,7 @@ void begin() {
         g_textTarget = TextTarget::SetClock;
         g_textBuf = "";
         g_textTitle = "Set date & time";
-        g_textHint = "YYYY-MM-DD HH:MM";   // `=skip shown in the footer
+        g_textHint = "DDMMYYYYHHMM digits";   // `=skip shown in the footer
         g_screen = Screen::TextInput;
     }
     setDirty();

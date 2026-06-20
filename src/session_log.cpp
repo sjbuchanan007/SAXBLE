@@ -68,8 +68,8 @@ String stamp(const Entry& e) {
         struct tm tmv;
         localtime_r(&e.wall, &tmv);
         char buf[24];
-        snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d",
-                 tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday,
+        snprintf(buf, sizeof(buf), "%02d/%02d/%04d %02d:%02d:%02d",
+                 tmv.tm_mday, tmv.tm_mon + 1, tmv.tm_year + 1900,
                  tmv.tm_hour, tmv.tm_min, tmv.tm_sec);
         return String(buf);
     }
