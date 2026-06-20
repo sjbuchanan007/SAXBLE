@@ -210,7 +210,6 @@ std::vector<String> settingsItems() {
     v.push_back(String("Device filter: ") +
                 (cfg.deviceName.length() ? cfg.deviceName : "(any NUS)"));
     v.push_back("Rescan / Reconnect");
-    v.push_back("Export log to SD");
     v.push_back("Set date & time");
     v.push_back("Reset to defaults");
     return v;
@@ -383,10 +382,12 @@ void drawLogView() {
         D().print("(no traffic yet)");
     }
 
-    D().setTextColor(COL_DIM, COL_BG);
+    D().setTextColor(COL_OK, COL_BG);
     D().setCursor(4, helpY);
-    D().print(SessionLog::sdAvailable() ? "ENTER=export SD  c=clear  `=back"
-                                        : "no SD  c=clear  `=back");
+    String sf = SessionLog::sessionFile();
+    if (sf.length())                  D().print("auto-saving " + sf + "  `=back");
+    else if (SessionLog::sdAvailable()) D().print("auto-save pending  `=back");
+    else                              D().print("NO SD CARD - not saving  `=back");
     drawFooter();
     drawNoticeOverlay();
 }
@@ -710,20 +711,14 @@ void activateSettings() {
             BleUart::startScan();
             notifyImpl("Rescanning...");
             break;
-        case 4: {
-            String err;
-            String path = SessionLog::exportToSd(&err);
-            notifyImpl(path.length() ? ("Saved " + path) : ("Export: " + err));
-            break;
-        }
-        case 5:
+        case 4:
             g_textTarget = TextTarget::SetClock;
             g_textBuf = "";
             g_textTitle = "Set date & time";
             g_textHint = "YYYY-MM-DD HH:MM";
             gotoScreen(Screen::TextInput);
             break;
-        case 6:
+        case 5:
             Config::resetDefaults();
             notifyImpl("Defaults restored");
             setDirty();
@@ -888,13 +883,8 @@ void handleKeys(const Keyboard_Class::KeysState& st) {
             break;
         }
         case Screen::LogView:
+            // Sessions auto-save to SD live; nothing to do but view/scroll.
             if (k == Key::Back) gotoScreen(Screen::Home);
-            else if (k == Key::Select) {
-                String err;
-                String path = SessionLog::exportToSd(&err);
-                notifyImpl(path.length() ? ("Saved " + path)
-                                         : ("Export: " + err));
-            }
             break;
         case Screen::PresetList: {
             auto items = presetItems();

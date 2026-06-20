@@ -58,8 +58,8 @@ use different UUIDs, you don't need to reflash.
 - **Password manager** — keeps a list of "popular passwords" (preloaded with the
   documented default `studio3`). Pick one to log in, or type a new one and it's
   saved for next time.
-- **Commissioning log** — every command sent and every reply received is
-  captured with a timestamp. **Export to microSD** writes a text file into a
+- **Commissioning log** — every command and reply is **auto-saved to microSD as
+  it happens** (no manual export). Each connection writes a timestamped file in a
   **per-device folder** (`/saxble/<device>_<id>/session_####.txt`, with the
   device name + address in the header) so each encoder's records stay together.
 - **Device registry** — every device you connect to is recorded once (name +

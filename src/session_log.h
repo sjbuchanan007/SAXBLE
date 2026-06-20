@@ -39,6 +39,9 @@ void clear();
 // True if a microSD card was detected at begin().
 bool sdAvailable();
 
+// Base name of the session file currently being auto-saved ("" if none/no SD).
+String sessionFile();
+
 // (Re)mount the microSD card, e.g. after inserting one post-boot. Returns true
 // if the card is now mounted.
 bool mountSd();

@@ -19,6 +19,11 @@ String g_devName;
 String g_devAddr;
 String g_devFolder;
 
+// Auto-save: a session file opened on connect, appended to live.
+File   g_file;
+bool   g_fileOpen = false;
+String g_sessionPath;
+
 // microSD pins for the Cardputer / Stamp S3.
 // NOTE: verify against the Cardputer ADV schematic — if export fails, these are
 // the first thing to check. They are isolated here so there's one place to fix.
@@ -78,6 +83,51 @@ String stamp(const Entry& e) {
     return String(buf);
 }
 
+void writeHeader(File& f) {
+    f.println("SAX-D commissioning session log");
+    f.println("Device:  " + (g_devName.length() ? g_devName : String("(unnamed)")));
+    f.println("Address: " + (g_devAddr.length() ? g_devAddr : String("(unknown)")));
+    if (clockIsSet()) {
+        Entry now{millis(), time(nullptr), Dir::Info, ""};
+        f.println("Started: " + stamp(now));
+    } else {
+        f.println("Timestamps are relative to device power-on (H:MM:SS.mmm).");
+        f.println("(Set the clock in Settings for real date/time.)");
+    }
+    f.println("Legend: >> sent   << received   -- note");
+    f.println("----------------------------------------");
+}
+
+void writeEntryLine(File& f, const Entry& e) {
+    f.printf("%-20s %s %s\n", stamp(e).c_str(), dirTag(e.dir), e.text.c_str());
+}
+
+// Open a fresh, numbered session file in the current device folder and write
+// the header. Called on each connect (setDevice).
+void startSessionFile() {
+    if (g_fileOpen) { g_file.flush(); g_file.close(); g_fileOpen = false; }
+    g_sessionPath = "";
+    if (!mountSd()) return;
+
+    if (!SD.exists(logDir())) SD.mkdir(logDir());
+    String folder = g_devFolder.length() ? g_devFolder : String(logDir());
+    if (!SD.exists(folder)) SD.mkdir(folder);
+
+    String path;
+    for (int i = 1; i < 10000; ++i) {
+        char n[24];
+        snprintf(n, sizeof(n), "/session_%04d.txt", i);
+        path = folder + n;
+        if (!SD.exists(path)) break;
+    }
+    g_file = SD.open(path.c_str(), FILE_WRITE);
+    if (!g_file) return;
+    g_fileOpen = true;
+    g_sessionPath = path;
+    writeHeader(g_file);
+    g_file.flush();
+}
+
 } // namespace
 
 void begin() {
@@ -99,12 +149,23 @@ void add(Dir dir, const String& text) {
     time_t wall = clockIsSet() ? time(nullptr) : 0;
     g_entries.push_back({millis(), wall, dir, text});
     while (g_entries.size() > kMaxEntries) g_entries.pop_front();
+    // Append to the auto-saved session file and flush so it's crash-safe.
+    if (g_fileOpen) {
+        writeEntryLine(g_file, g_entries.back());
+        g_file.flush();
+    }
 }
 
 const std::deque<Entry>& entries() { return g_entries; }
 size_t size()                      { return g_entries.size(); }
 void clear()                       { g_entries.clear(); }
 bool sdAvailable()                 { return g_sdOk; }
+
+String sessionFile() {
+    if (!g_fileOpen || !g_sessionPath.length()) return "";
+    int slash = g_sessionPath.lastIndexOf('/');
+    return slash >= 0 ? g_sessionPath.substring(slash + 1) : g_sessionPath;
+}
 
 // Add this device to /saxble/devices.txt the first time we see its address.
 void updateRegistry() {
@@ -140,6 +201,7 @@ void setDevice(const String& name, const String& address) {
         if (!SD.exists(g_devFolder)) SD.mkdir(g_devFolder);
         updateRegistry();
     }
+    startSessionFile();   // begin auto-saving this connection's session
 }
 
 String exportToSd(String* outError) {
