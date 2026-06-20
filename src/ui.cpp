@@ -2,7 +2,10 @@
 #include "commands.h"
 #include "config.h"
 #include "session_log.h"
+#include "presets.h"
 #include <M5Cardputer.h>
+#include <ctime>
+#include <sys/time.h>
 #include <algorithm>
 #include <vector>
 
@@ -43,6 +46,8 @@ enum class Screen : uint8_t {
     LogView,
     Settings,
     TextInput,
+    PresetList,
+    PresetRun,
 };
 
 // ----- State ----------------------------------------------------------------
@@ -66,8 +71,18 @@ bool     g_awaitConfirm = false;   // a destructive cmd was sent; answer its Y/N
 uint32_t g_awaitConfirmMs = 0;
 uint32_t g_portalRefresh = 0;      // periodic redraw while the Wi-Fi portal is up
 
+// Preset runner state.
+int      g_presetIdx = 0;          // which preset is running
+int      g_presetStep = 0;         // step currently being run
+bool     g_presetRunning = false;
+bool     g_presetWaiting = false;  // a step was sent; waiting for the encoder OK
+uint32_t g_presetStepMs = 0;
+volatile bool g_presetGotOk = false;
+volatile bool g_presetGotYN = false;
+String   g_presetLast;             // last status line shown on the run screen
+
 // Text-entry context: where the confirmed text should go.
-enum class TextTarget : uint8_t { Param, NewPassword, DeviceName };
+enum class TextTarget : uint8_t { Param, NewPassword, DeviceName, PresetLocation, SetClock };
 TextTarget g_textTarget = TextTarget::Param;
 String     g_textBuf;
 String     g_textTitle;
@@ -77,6 +92,9 @@ String     g_textHint;
 void drawNoticeOverlay();
 void beginParamStep();
 void disconnectToScan();
+void presetRunStep();
+void presetAbort();
+bool applyClock(const String& s);
 
 // ----- Small helpers --------------------------------------------------------
 // Explicit return type (the ESP32 Arduino core builds with C++11, which has no
@@ -113,9 +131,16 @@ void gotoScreen(Screen s) {
 std::vector<String> homeItems() {
     std::vector<String> v;
     for (auto& c : Commands::categories()) v.push_back(c.label);
+    v.push_back("Presets");
     v.push_back("Session Log");
     v.push_back("Settings");
     v.push_back("Disconnect");
+    return v;
+}
+
+std::vector<String> presetItems() {
+    std::vector<String> v;
+    for (auto& p : Presets::all()) v.push_back(p.name);
     return v;
 }
 
@@ -186,6 +211,7 @@ std::vector<String> settingsItems() {
                 (cfg.deviceName.length() ? cfg.deviceName : "(any NUS)"));
     v.push_back("Rescan / Reconnect");
     v.push_back("Export log to SD");
+    v.push_back("Set date & time");
     v.push_back("Reset to defaults");
     return v;
 }
@@ -365,10 +391,35 @@ void drawLogView() {
     drawNoticeOverlay();
 }
 
+void drawPresetRun() {
+    D().fillScreen(COL_BG);
+    const Preset& p = Presets::all()[g_presetIdx];
+    drawHeader(p.name);
+    D().setTextSize(2);
+    D().setTextColor(g_presetRunning ? COL_FG : COL_OK, COL_BG);
+    D().setCursor(4, kBodyTop + 6);
+    if (g_presetRunning) D().printf("Step %d / %d", g_presetStep + 1, p.count);
+    else                 D().print("Complete");
+    D().setTextSize(1);
+    D().setTextColor(COL_DIM, COL_BG);
+    D().setCursor(4, kBodyTop + 6 + TXT_H + 6);
+    D().print(g_presetLast.substring(0, 38));
+    D().setCursor(4, kBodyBottom + 1);
+    D().print(g_presetRunning ? "running...  `=stop" : "`=back");
+    drawFooter();
+    drawNoticeOverlay();
+}
+
 void render() {
     switch (g_screen) {
         case Screen::BleScan:
             drawList("Select encoder", bleScanItems());
+            break;
+        case Screen::PresetList:
+            drawList("Presets", presetItems());
+            break;
+        case Screen::PresetRun:
+            drawPresetRun();
             break;
         case Screen::Home:
             drawList("Encoder menu", homeItems());
@@ -496,6 +547,23 @@ void confirmTextInput() {
             BleUart::startScan();
             gotoScreen(Screen::Settings);
             break;
+        case TextTarget::PresetLocation: {
+            // Spaces -> \s so the encoder keeps the whole location as one token.
+            String loc = g_textBuf;
+            loc.replace(" ", "\\s");
+            String line = "location " + loc;
+            BleUart::send(line);
+            SessionLog::tx(line);
+            g_presetLast = line;
+            g_presetWaiting = true;
+            g_presetStepMs = millis();
+            gotoScreen(Screen::PresetRun);
+            break;
+        }
+        case TextTarget::SetClock:
+            notifyImpl(applyClock(g_textBuf) ? "Clock set" : "Bad format");
+            gotoScreen(Screen::Settings);
+            break;
     }
 }
 
@@ -507,14 +575,118 @@ void disconnectToScan() {
     gotoScreen(Screen::BleScan);
 }
 
+// ----- Presets (chained commands) -------------------------------------------
+
+void presetRunStep() {
+    const Preset& p = Presets::all()[g_presetIdx];
+    if (g_presetStep >= p.count) {        // finished
+        g_presetRunning = false;
+        g_presetLast = "Complete";
+        notifyImpl("Preset complete");
+        setDirty();
+        return;
+    }
+    const PresetStep& st = p.steps[g_presetStep];
+    if (st.kind == StepKind::PromptLocation) {
+        g_textTarget = TextTarget::PresetLocation;
+        g_textBuf = "";
+        g_textTitle = "Enter location";
+        g_textHint = "spaces ok";
+        gotoScreen(Screen::TextInput);    // resumes in confirmTextInput()
+        return;
+    }
+    String line = st.line;
+    // If the preset changes the password, keep our saved login in sync so
+    // auto-login still works on the next connection.
+    if (line.startsWith("password ")) {
+        String pw = line.substring(9);
+        pw.trim();
+        if (pw.length()) { Config::get().lastPassword = pw; Config::addPassword(pw); }
+    }
+    if (BleUart::send(line)) {
+        SessionLog::tx(line);
+        g_presetLast = line;
+    } else {
+        SessionLog::info("preset: send failed: " + line);
+        g_presetLast = "send failed";
+    }
+    g_presetWaiting = true;
+    g_presetStepMs = millis();
+    setDirty();
+}
+
+void presetStart(int idx) {
+    g_presetIdx = idx;
+    g_presetStep = 0;
+    g_presetRunning = true;
+    g_presetWaiting = false;
+    g_presetGotOk = g_presetGotYN = false;
+    g_presetLast = "starting...";
+    gotoScreen(Screen::PresetRun);
+    presetRunStep();
+}
+
+void presetAbort() {
+    g_presetRunning = false;
+    g_presetWaiting = false;
+    notifyImpl("Preset stopped");
+    gotoScreen(Screen::Home);
+}
+
+// Advance the running preset: answer Y/N, move on after OK, or time out.
+void servicePreset() {
+    if (!g_presetRunning || !g_presetWaiting) return;
+    if (g_presetGotYN) {
+        g_presetGotYN = false;
+        BleUart::send("Y");
+        SessionLog::info("preset: sent Y");
+        g_presetStepMs = millis();
+        return;
+    }
+    if (g_presetGotOk) {
+        g_presetGotOk = false;
+        g_presetWaiting = false;
+        g_presetStep++;
+        presetRunStep();
+        return;
+    }
+    if (millis() - g_presetStepMs > 6000) {
+        SessionLog::info("preset: step timed out, continuing");
+        g_presetWaiting = false;
+        g_presetStep++;
+        presetRunStep();
+    }
+}
+
+// Parse "YYYY-MM-DD HH:MM" and set the ESP32 real-time clock.
+bool applyClock(const String& s) {
+    int Y, Mo, D, H, Mi;
+    if (sscanf(s.c_str(), "%d-%d-%d %d:%d", &Y, &Mo, &D, &H, &Mi) != 5) return false;
+    if (Y < 2023 || Mo < 1 || Mo > 12 || D < 1 || D > 31 || H > 23 || Mi > 59)
+        return false;
+    struct tm tmv = {};
+    tmv.tm_year = Y - 1900;
+    tmv.tm_mon  = Mo - 1;
+    tmv.tm_mday = D;
+    tmv.tm_hour = H;
+    tmv.tm_min  = Mi;
+    time_t t = mktime(&tmv);
+    if (t <= 0) return false;
+    struct timeval tv = {t, 0};
+    settimeofday(&tv, nullptr);
+    return true;
+}
+
 void activateHome() {
     int nCats = (int)Commands::categories().size();
     if (g_cursor < nCats) {
         g_catIdx = g_cursor;
         gotoScreen(Screen::CommandList);
     } else if (g_cursor == nCats) {
-        gotoScreen(Screen::LogView);
+        gotoScreen(Screen::PresetList);
     } else if (g_cursor == nCats + 1) {
+        gotoScreen(Screen::LogView);
+    } else if (g_cursor == nCats + 2) {
         gotoScreen(Screen::Settings);
     } else {
         disconnectToScan();         // Disconnect
@@ -545,6 +717,13 @@ void activateSettings() {
             break;
         }
         case 5:
+            g_textTarget = TextTarget::SetClock;
+            g_textBuf = "";
+            g_textTitle = "Set date & time";
+            g_textHint = "YYYY-MM-DD HH:MM";
+            gotoScreen(Screen::TextInput);
+            break;
+        case 6:
             Config::resetDefaults();
             notifyImpl("Defaults restored");
             setDirty();
@@ -576,10 +755,14 @@ void handleKeys(const Keyboard_Class::KeysState& st) {
     if (g_screen == Screen::TextInput) {
         bool changed = false;
         for (char c : st.word) {
-            if (c == '`') { gotoScreen(  // cancel
-                    g_textTarget == TextTarget::NewPassword ? Screen::Login
-                    : g_textTarget == TextTarget::DeviceName ? Screen::Settings
-                                                             : Screen::CommandList);
+            if (c == '`') {            // cancel text entry
+                switch (g_textTarget) {
+                    case TextTarget::NewPassword:    gotoScreen(Screen::Login); break;
+                    case TextTarget::DeviceName:     gotoScreen(Screen::Settings); break;
+                    case TextTarget::SetClock:       gotoScreen(Screen::Settings); break;
+                    case TextTarget::PresetLocation: presetAbort(); break;
+                    default:                         gotoScreen(Screen::CommandList); break;
+                }
                 return;
             }
             g_textBuf += c;
@@ -713,6 +896,20 @@ void handleKeys(const Keyboard_Class::KeysState& st) {
                                          : ("Export: " + err));
             }
             break;
+        case Screen::PresetList: {
+            auto items = presetItems();
+            if (k == Key::Back) gotoScreen(Screen::Home);
+            else if (k == Key::Select && g_cursor < (int)items.size())
+                presetStart(g_cursor);
+            else handleListNav(k, items.size());
+            break;
+        }
+        case Screen::PresetRun:
+            if (k == Key::Back) {
+                if (g_presetRunning) presetAbort();
+                else gotoScreen(Screen::Home);
+            }
+            break;
         default: break;
     }
 }
@@ -732,6 +929,7 @@ void loop() {
     if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
         handleKeys(M5Cardputer.Keyboard.keysState());
     }
+    servicePreset();    // advance a running preset (sends happen here, not in RX)
     // notice expiry forces a redraw
     if (g_notice.length() && millis() > g_noticeUntil) setDirty();
     // refresh the scan screen so the live device list updates
@@ -745,6 +943,18 @@ void loop() {
 void onRxLine(const String& line) {
     SessionLog::rx(line);
     g_lastEncoderLine = line;
+
+    // Feed the preset runner: flag the encoder's OK / Y-N so servicePreset()
+    // (main loop) can advance. Sends happen there, not in this callback.
+    if (g_presetRunning && g_presetWaiting) {
+        String lower = line;
+        lower.toLowerCase();
+        if (lower.indexOf("y or n") >= 0 || lower.indexOf("y/n") >= 0)
+            g_presetGotYN = true;
+        else if (line.endsWith("OK"))
+            g_presetGotOk = true;
+    }
+
     if (line.indexOf(Config::get().loginSuccessMarker) >= 0) {
         setLoggedIn(true);
         notifyImpl("Logged in");
@@ -772,10 +982,13 @@ void onBleState(BleUart::State s) {
         gotoScreen(Screen::Login);
     } else {
         setLoggedIn(false);
-        // Dropped link while using the encoder: go back to the scan list to
-        // reconnect.
-        if (s == BleUart::State::Disconnected && isLiveEncoderScreen(g_screen))
-            gotoScreen(Screen::BleScan);
+        if (s == BleUart::State::Disconnected) {
+            g_presetRunning = false;   // a dropped link aborts any running preset
+            // Dropped link while using the encoder: go back to the scan list.
+            if (isLiveEncoderScreen(g_screen) || g_screen == Screen::PresetRun ||
+                g_screen == Screen::PresetList)
+                gotoScreen(Screen::BleScan);
+        }
     }
     SessionLog::info(String("BLE: ") + BleUart::statusText());
     setDirty();

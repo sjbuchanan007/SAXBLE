@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include <ctime>
 #include <deque>
 
 // Captures the terminal session (commands we send + replies we receive) so it
@@ -14,6 +15,7 @@ enum class Dir : uint8_t { Tx, Rx, Info };
 
 struct Entry {
     uint32_t ms;    // millis() when logged
+    time_t   wall;  // wall-clock time when logged (0 if the clock isn't set)
     Dir      dir;
     String   text;
 };

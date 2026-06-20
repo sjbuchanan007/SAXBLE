@@ -64,8 +64,13 @@ use different UUIDs, you don't need to reflash.
   device name + address in the header) so each encoder's records stay together.
 - **Device registry** — every device you connect to is recorded once (name +
   address) in `/saxble/devices.txt` for traceability.
+- **Presets** — one menu pick runs a whole sequence (e.g. set gas types, enable
+  pressure display, set the password, prompt for the location), waiting for each
+  `OK` and auto-answering any `Y or N`. Edit the list in `src/presets.cpp`.
+- **Clock** — set the date/time once (Settings → Set date & time) and the logs
+  switch from power-on-relative to real timestamps for the commissioning report.
 - **On-device settings** — toggle auto-login / write-with-response, set a device
-  name filter, rescan, reset to defaults.
+  name filter, rescan, set the clock, reset to defaults.
 
 ## Getting the logs off
 

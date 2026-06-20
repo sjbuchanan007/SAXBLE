@@ -1,6 +1,11 @@
 #include "session_log.h"
 #include <SPI.h>
 #include <SD.h>
+#include <ctime>
+
+// time(nullptr) returns a value past this only once the clock has been set.
+static constexpr time_t kClockSetThreshold = 1700000000;  // ~2023-11
+static bool clockIsSet() { return time(nullptr) > kClockSetThreshold; }
 
 namespace SessionLog {
 namespace {
@@ -51,15 +56,25 @@ const char* dirTag(Dir d) {
     return "??";
 }
 
-// Format a millis() value as H:MM:SS.mmm relative to power-on.
-String stamp(uint32_t ms) {
-    uint32_t s = ms / 1000;
+// Timestamp for an entry: real date/time if the clock was set when it was
+// logged, otherwise H:MM:SS.mmm relative to power-on.
+String stamp(const Entry& e) {
+    if (e.wall > kClockSetThreshold) {
+        struct tm tmv;
+        localtime_r(&e.wall, &tmv);
+        char buf[24];
+        snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d",
+                 tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday,
+                 tmv.tm_hour, tmv.tm_min, tmv.tm_sec);
+        return String(buf);
+    }
+    uint32_t s = e.ms / 1000;
     char buf[16];
     snprintf(buf, sizeof(buf), "%lu:%02lu:%02lu.%03lu",
              (unsigned long)(s / 3600),
              (unsigned long)((s / 60) % 60),
              (unsigned long)(s % 60),
-             (unsigned long)(ms % 1000));
+             (unsigned long)(e.ms % 1000));
     return String(buf);
 }
 
@@ -81,7 +96,8 @@ bool mountSd() {
 const char* logDir() { return "/saxble"; }
 
 void add(Dir dir, const String& text) {
-    g_entries.push_back({millis(), dir, text});
+    time_t wall = clockIsSet() ? time(nullptr) : 0;
+    g_entries.push_back({millis(), wall, dir, text});
     while (g_entries.size() > kMaxEntries) g_entries.pop_front();
 }
 
@@ -159,11 +175,17 @@ String exportToSd(String* outError) {
     f.println("SAX-D commissioning session log");
     f.println("Device:  " + (g_devName.length() ? g_devName : String("(unnamed)")));
     f.println("Address: " + (g_devAddr.length() ? g_devAddr : String("(unknown)")));
-    f.println("Timestamps are relative to device power-on (H:MM:SS.mmm).");
+    if (clockIsSet()) {
+        Entry now{millis(), time(nullptr), Dir::Info, ""};
+        f.println("Exported: " + stamp(now));
+    } else {
+        f.println("Timestamps are relative to device power-on (H:MM:SS.mmm).");
+        f.println("(Set the clock in Settings for real date/time.)");
+    }
     f.println("Legend: >> sent   << received   -- note");
     f.println("----------------------------------------");
     for (const auto& e : g_entries) {
-        f.printf("%-12s %s %s\n", stamp(e.ms).c_str(), dirTag(e.dir),
+        f.printf("%-20s %s %s\n", stamp(e).c_str(), dirTag(e.dir),
                  e.text.c_str());
     }
     f.flush();
