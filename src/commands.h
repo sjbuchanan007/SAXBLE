@@ -30,6 +30,7 @@ struct CommandDef {
     const EnumOption* enumOpts; // for ParamType::Enum
     uint8_t     enumCount;
     const char* help;          // one-line description
+    bool        destructive;   // require an extra confirm before sending
 };
 
 struct CommandCategory {

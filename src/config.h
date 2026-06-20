@@ -23,6 +23,10 @@ struct AppConfig {
     String               lastPassword;  // password used last (pre-selected next time)
     std::vector<String>  passwords;     // saved "popular passwords" to choose from
     String               loginSuccessMarker; // text in a reply that means we're in
+
+    // --- Wi-Fi log export hotspot -------------------------------------------
+    String wifiSsid;        // SoftAP name the Cardputer broadcasts
+    String wifiPassword;    // SoftAP password (>= 8 chars for WPA2)
 };
 
 namespace Config {

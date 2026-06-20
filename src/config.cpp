@@ -41,13 +41,19 @@ void applyDefaults() {
     g_cfg.serviceUuid       = kNusService;
     g_cfg.rxCharUuid        = kNusRx;
     g_cfg.txCharUuid        = kNusTx;
+    // CR+LF: required for login on this encoder (LF-only is rejected, CR-only
+    // gets no reply). Selectable in Settings if a unit behaves differently.
     g_cfg.lineEnding        = "\r\n";
     g_cfg.writeWithResponse = false;          // "Write Without Response"
     g_cfg.autoLogin         = true;
     g_cfg.lastPassword      = "studio3";
     // Popular/known passwords. studio3 is the documented default.
-    g_cfg.passwords         = {"studio3"};
-    g_cfg.loginSuccessMarker = "Welcome to Shire SAX Command Line Interface";
+    g_cfg.passwords         = {"studio3", "MMSmms659"};
+    // Substring is enough; full banner is "Welcome to Shire SAX Command Line
+    // Interface". Keeping it short tolerates minor wording differences.
+    g_cfg.loginSuccessMarker = "Welcome to Shire";
+    g_cfg.wifiSsid     = "SAXBLE-Setup";
+    g_cfg.wifiPassword = "saxble1234";   // >= 8 chars for WPA2
 }
 } // namespace
 
@@ -67,8 +73,10 @@ void load() {
     g_cfg.writeWithResponse = g_prefs.getBool("wwr", g_cfg.writeWithResponse);
     g_cfg.autoLogin   = g_prefs.getBool("auto",  g_cfg.autoLogin);
     g_cfg.lastPassword = g_prefs.getString("lpw", g_cfg.lastPassword);
-    g_cfg.loginSuccessMarker =
-        g_prefs.getString("mark", g_cfg.loginSuccessMarker);
+    // loginSuccessMarker is intentionally not persisted - always use the
+    // compiled-in value so updates to it take effect on reflash.
+    g_cfg.wifiSsid     = g_prefs.getString("wssid", g_cfg.wifiSsid);
+    g_cfg.wifiPassword = g_prefs.getString("wpass", g_cfg.wifiPassword);
 
     String pwBlob = g_prefs.getString("pws", "");
     if (pwBlob.length()) g_cfg.passwords = splitPasswords(pwBlob);
@@ -86,7 +94,8 @@ void save() {
     g_prefs.putBool("wwr",    g_cfg.writeWithResponse);
     g_prefs.putBool("auto",   g_cfg.autoLogin);
     g_prefs.putString("lpw",  g_cfg.lastPassword);
-    g_prefs.putString("mark", g_cfg.loginSuccessMarker);
+    g_prefs.putString("wssid", g_cfg.wifiSsid);
+    g_prefs.putString("wpass", g_cfg.wifiPassword);
     g_prefs.putString("pws",  joinPasswords(g_cfg.passwords));
     g_prefs.end();
 }
