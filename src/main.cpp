@@ -26,14 +26,14 @@ String              g_pendingLoginPw;
 // "Password:" before it accepts input.
 volatile bool g_loginPending = false;
 uint32_t      g_loginPromptMs = 0;
-constexpr uint32_t kLoginSettleMs = 500;
+constexpr uint32_t kLoginSettleMs = 900;   // gentle: avoid hammering the encoder
 
 void buildLoginCandidates() {
     g_loginCandidates.clear();
     g_loginIdx = 0;
     auto& cfg = Config::get();
     auto addUnique = [&](const String& p) {
-        if (!p.length()) return;
+        if (p.length() < 3) return;   // skip junk (stray single keypresses)
         for (auto& e : g_loginCandidates) if (e == p) return;
         g_loginCandidates.push_back(p);
     };
@@ -108,6 +108,7 @@ void serviceAutoLogin() {
     g_loginPending = false;
     if (Ui::loggedIn() || !BleUart::connected() || !g_pendingLoginPw.length()) return;
     BleUart::send(g_pendingLoginPw);
+    Ui::rememberLogin(g_pendingLoginPw);   // save it only if login then succeeds
     SessionLog::info("auto-login sent: " + g_pendingLoginPw);  // shown to verify
 }
 

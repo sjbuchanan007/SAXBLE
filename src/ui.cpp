@@ -84,6 +84,7 @@ String   g_presetLast;             // last status line shown on the run screen
 // Password retype: the encoder asks "Retype password" after a password change.
 String   g_retypePw;               // value to retype when prompted
 String   g_pwCandidate;            // new password; saved only once confirmed
+String   g_loginSavePending;       // login password to save once it succeeds
 volatile bool g_retypePending = false;
 uint32_t g_retypeMs = 0;
 Screen   g_clockReturn = Screen::BleScan;  // where to go after Set date & time
@@ -503,12 +504,9 @@ void sendCurrentCommand() {
 }
 
 void sendPassword(const String& pw) {
-    auto& cfg = Config::get();
-    Config::addPassword(pw);
-    cfg.lastPassword = pw;
-    Config::save();
     // Manual login: stop auto-login from racing this with a different password.
     g_autoLoginSuppressed = true;
+    g_loginSavePending = pw;          // saved to the list only if it works
     if (BleUart::send(pw)) {
         SessionLog::info("login sent: " + pw);   // shown so it can be verified
         notifyImpl("Sent: " + pw);
@@ -1020,6 +1018,12 @@ void onRxLine(const String& line) {
     if (line.indexOf(Config::get().loginSuccessMarker) >= 0) {
         setLoggedIn(true);
         notifyImpl("Logged in");
+        // The password that just worked: adopt it (and add to the saved list).
+        if (g_loginSavePending.length()) {
+            Config::get().lastPassword = g_loginSavePending;
+            Config::addPassword(g_loginSavePending);
+            g_loginSavePending = "";
+        }
         if (g_screen == Screen::Login) gotoScreen(Screen::Home);
     }
     setDirty();
@@ -1066,6 +1070,7 @@ void onDevicesChanged() { setDirty(); }
 void setLoggedIn(bool in) { g_loggedIn = in; setDirty(); }
 bool loggedIn()           { return g_loggedIn; }
 bool autoLoginSuppressed() { return g_autoLoginSuppressed; }
+void rememberLogin(const String& pw) { g_loginSavePending = pw; }
 
 // A destructive command was sent within the last few seconds and is awaiting a
 // Y/N confirmation prompt from the encoder.
