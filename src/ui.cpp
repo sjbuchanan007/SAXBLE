@@ -83,6 +83,7 @@ String   g_presetLast;             // last status line shown on the run screen
 
 // Password retype: the encoder asks "Retype password" after a password change.
 String   g_retypePw;               // value to retype when prompted
+String   g_pwCandidate;            // new password; saved only once confirmed
 volatile bool g_retypePending = false;
 uint32_t g_retypeMs = 0;
 Screen   g_clockReturn = Screen::BleScan;  // where to go after Set date & time
@@ -330,15 +331,18 @@ void drawTextInput() {
     D().fillScreen(COL_BG);
     drawHeader(g_textTitle);
 
+    int boxY = kBodyTop + 16;
     if (g_textHint.length()) {
-        D().setTextSize(1);
+        // Short hints (e.g. the date format) are shown large so they're legible.
+        bool big = g_textHint.length() <= 19;
+        D().setTextSize(big ? 2 : 1);
         D().setTextColor(COL_DIM, COL_BG);
         D().setCursor(6, kBodyTop + 2);
-        D().print(g_textHint.substring(0, 38));
+        D().print(g_textHint.substring(0, big ? 19 : 38));
+        boxY = kBodyTop + 2 + (big ? TXT_H : 8) + 8;
     }
 
     // input box
-    int boxY = kBodyTop + 16;
     D().drawRect(4, boxY, W - 8, TXT_H + 8, COL_DIM);
     D().setTextSize(2);
     D().setTextColor(COL_FG, COL_BG);
@@ -470,11 +474,10 @@ void sendCurrentCommand() {
     String line = Commands::build(*g_cmd, g_channel, g_param);
     bool isLogout = String(g_cmd->id) == "gen_logout";
     // Changing the password: remember it for the encoder's "Retype password"
-    // prompt, and keep our saved login in sync so auto-login still works.
+    // prompt. We only save it as our login once the encoder confirms success.
     if (String(g_cmd->id) == "gen_password" && g_param.length()) {
         g_retypePw = g_param;
-        Config::get().lastPassword = g_param;
-        Config::addPassword(g_param);
+        g_pwCandidate = g_param;
     }
     if (BleUart::send(line)) {
         SessionLog::tx(line);
@@ -618,9 +621,8 @@ void presetRunStep() {
         String pw = line.substring(9);
         pw.trim();
         if (pw.length()) {
-            Config::get().lastPassword = pw;
-            Config::addPassword(pw);
-            g_retypePw = pw;   // for the encoder's "Retype password" prompt
+            g_retypePw = pw;       // for the "Retype password" prompt
+            g_pwCandidate = pw;    // saved as our login only once confirmed
         }
     }
     if (BleUart::send(line)) {
@@ -951,7 +953,7 @@ void begin() {
         g_textTarget = TextTarget::SetClock;
         g_textBuf = "";
         g_textTitle = "Set date & time";
-        g_textHint = "YYYY-MM-DD HH:MM  (`=skip)";
+        g_textHint = "YYYY-MM-DD HH:MM";   // `=skip shown in the footer
         g_screen = Screen::TextInput;
     }
     setDirty();
@@ -985,13 +987,25 @@ void onRxLine(const String& line) {
         g_retypePending = true;
         g_retypeMs = millis();
     }
+    // Password change confirmed: now adopt it as our saved login.
+    if (lower.indexOf("updated successfully") >= 0 && g_pwCandidate.length()) {
+        Config::get().lastPassword = g_pwCandidate;
+        Config::addPassword(g_pwCandidate);
+        g_pwCandidate = "";
+    } else if (lower.indexOf("not updated") >= 0 ||
+               lower.indexOf("do not match") >= 0) {
+        g_pwCandidate = "";       // change failed; keep the old saved login
+        g_retypePw = "";
+    }
 
-    // Feed the preset runner: flag the encoder's OK / Y-N so servicePreset()
-    // (main loop) can advance. Sends happen there, not in this callback.
+    // Feed the preset runner: flag the encoder's OK / Y-N (or a password
+    // success/failure reply) so servicePreset() (main loop) can advance.
     if (g_presetRunning && g_presetWaiting) {
         if (lower.indexOf("y or n") >= 0 || lower.indexOf("y/n") >= 0)
             g_presetGotYN = true;
-        else if (line.endsWith("OK"))
+        else if (line.endsWith("OK") ||
+                 lower.indexOf("updated successfully") >= 0 ||
+                 lower.indexOf("not updated") >= 0)
             g_presetGotOk = true;
     }
 

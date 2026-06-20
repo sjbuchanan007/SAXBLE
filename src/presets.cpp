@@ -2,22 +2,28 @@
 
 namespace {
 
-// 2-gas panel: O2 (1), Vacuum (3); gas 2 disabled.
+// 2-gas panel: O2 (1), Vacuum (3); gases 2, 4, 5, 6 disabled.
 const PresetStep k2Gas[] = {
     {StepKind::Cmd, "gas 1 type O2"},
     {StepKind::Cmd, "gas 2 off"},
     {StepKind::Cmd, "gas 3 type VAC"},
+    {StepKind::Cmd, "gas 4 off"},
+    {StepKind::Cmd, "gas 5 off"},
+    {StepKind::Cmd, "gas 6 off"},
     {StepKind::Cmd, "gas a press_on"},
     {StepKind::Cmd, "password MMSmms659"},
     {StepKind::PromptLocation, nullptr},
     {StepKind::Cmd, "gas a list"},          // snapshot the result into the log
 };
 
-// 3-gas panel: O2 (1), Medical Air (2), Vacuum (3).
+// 3-gas panel: O2 (1), Medical Air (2), Vacuum (3); gases 4, 5, 6 disabled.
 const PresetStep k3Gas[] = {
     {StepKind::Cmd, "gas 1 type O2"},
     {StepKind::Cmd, "gas 2 type MA_4"},
     {StepKind::Cmd, "gas 3 type VAC"},
+    {StepKind::Cmd, "gas 4 off"},
+    {StepKind::Cmd, "gas 5 off"},
+    {StepKind::Cmd, "gas 6 off"},
     {StepKind::Cmd, "gas a press_on"},
     {StepKind::Cmd, "password MMSmms659"},
     {StepKind::PromptLocation, nullptr},
