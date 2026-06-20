@@ -507,10 +507,11 @@ void sendPassword(const String& pw) {
     Config::addPassword(pw);
     cfg.lastPassword = pw;
     Config::save();
-    g_autoLoginSuppressed = false;   // user is deliberately logging in
+    // Manual login: stop auto-login from racing this with a different password.
+    g_autoLoginSuppressed = true;
     if (BleUart::send(pw)) {
-        SessionLog::info("login sent (password hidden)");
-        notifyImpl("Password sent");
+        SessionLog::info("login sent: " + pw);   // shown so it can be verified
+        notifyImpl("Sent: " + pw);
     } else {
         notifyImpl("Not connected");
     }
@@ -687,7 +688,7 @@ void serviceRetype() {
     g_retypePending = false;
     if (!BleUart::connected() || !g_retypePw.length()) return;
     BleUart::send(g_retypePw);
-    SessionLog::info("retype password sent (hidden)");
+    SessionLog::info("retype sent: " + g_retypePw);   // shown to verify
     g_retypePw = "";
     // Don't let a running preset time out while we confirm the password.
     if (g_presetRunning && g_presetWaiting) g_presetStepMs = millis();

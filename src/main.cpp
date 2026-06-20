@@ -108,7 +108,7 @@ void serviceAutoLogin() {
     g_loginPending = false;
     if (Ui::loggedIn() || !BleUart::connected() || !g_pendingLoginPw.length()) return;
     BleUart::send(g_pendingLoginPw);
-    SessionLog::info("auto-login sent (password hidden)");
+    SessionLog::info("auto-login sent: " + g_pendingLoginPw);  // shown to verify
 }
 
 // Called from loop(): answer a destructive command's "Y or N" prompt with Y.
