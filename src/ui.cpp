@@ -214,9 +214,13 @@ std::vector<String> loginItems() {
 std::vector<String> settingsItems() {
     auto& cfg = Config::get();
     std::vector<String> v;
+    String eol = cfg.lineEnding == "\r\n" ? "CRLF"
+               : cfg.lineEnding == "\n"   ? "LF"
+               : cfg.lineEnding == "\r"   ? "CR" : "?";
     v.push_back(String("Auto-login: ") + (cfg.autoLogin ? "ON" : "OFF"));
     v.push_back(String("Write w/ response: ") +
                 (cfg.writeWithResponse ? "ON" : "OFF"));
+    v.push_back(String("Line ending: ") + eol);
     v.push_back(String("Device filter: ") +
                 (cfg.deviceName.length() ? cfg.deviceName : "(any NUS)"));
     v.push_back("Rescan / Reconnect");
@@ -740,18 +744,24 @@ void activateSettings() {
         case 0: cfg.autoLogin = !cfg.autoLogin; Config::save(); setDirty(); break;
         case 1: cfg.writeWithResponse = !cfg.writeWithResponse; Config::save();
                 setDirty(); break;
-        case 2:
+        case 2:   // cycle line ending CRLF -> LF -> CR
+            cfg.lineEnding = cfg.lineEnding == "\r\n" ? "\n"
+                           : cfg.lineEnding == "\n"   ? "\r" : "\r\n";
+            Config::save();
+            setDirty();
+            break;
+        case 3:
             g_textTarget = TextTarget::DeviceName;
             g_textBuf = cfg.deviceName;
             g_textTitle = "Device name filter";
             g_textHint = "blank = match any NUS device";
             gotoScreen(Screen::TextInput);
             break;
-        case 3:
+        case 4:
             BleUart::startScan();
             notifyImpl("Rescanning...");
             break;
-        case 4:
+        case 5:
             g_clockReturn = Screen::Settings;
             g_textTarget = TextTarget::SetClock;
             g_textBuf = "";
@@ -759,7 +769,7 @@ void activateSettings() {
             g_textHint = "DDMMYYYYHHMM digits";
             gotoScreen(Screen::TextInput);
             break;
-        case 5:
+        case 6:
             Config::resetDefaults();
             notifyImpl("Defaults restored");
             setDirty();
