@@ -41,7 +41,9 @@ void applyDefaults() {
     g_cfg.serviceUuid       = kNusService;
     g_cfg.rxCharUuid        = kNusRx;
     g_cfg.txCharUuid        = kNusTx;
-    g_cfg.lineEnding        = "\r\n";
+    // Single CR: the encoder treats CR and LF as separate Enters (which double-
+    // triggered prompts and corrupted the interactive password/retype flow).
+    g_cfg.lineEnding        = "\r";
     g_cfg.writeWithResponse = false;          // "Write Without Response"
     g_cfg.autoLogin         = true;
     g_cfg.lastPassword      = "studio3";
@@ -67,7 +69,7 @@ void load() {
     g_cfg.serviceUuid = g_prefs.getString("svc",  g_cfg.serviceUuid);
     g_cfg.rxCharUuid  = g_prefs.getString("rx",   g_cfg.rxCharUuid);
     g_cfg.txCharUuid  = g_prefs.getString("tx",   g_cfg.txCharUuid);
-    g_cfg.lineEnding  = g_prefs.getString("eol",  g_cfg.lineEnding);
+    // lineEnding is intentionally not persisted - always use the compiled value.
     g_cfg.writeWithResponse = g_prefs.getBool("wwr", g_cfg.writeWithResponse);
     g_cfg.autoLogin   = g_prefs.getBool("auto",  g_cfg.autoLogin);
     g_cfg.lastPassword = g_prefs.getString("lpw", g_cfg.lastPassword);
@@ -88,7 +90,6 @@ void save() {
     g_prefs.putString("svc",  g_cfg.serviceUuid);
     g_prefs.putString("rx",   g_cfg.rxCharUuid);
     g_prefs.putString("tx",   g_cfg.txCharUuid);
-    g_prefs.putString("eol",  g_cfg.lineEnding);
     g_prefs.putBool("wwr",    g_cfg.writeWithResponse);
     g_prefs.putBool("auto",   g_cfg.autoLogin);
     g_prefs.putString("lpw",  g_cfg.lastPassword);
