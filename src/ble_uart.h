@@ -57,6 +57,11 @@ bool paused();
 // Returns false if not currently connected.
 bool send(const String& line);
 
+// Like send(), but writes one character at a time with a small gap - mimics
+// typing. Needed for the encoder's password prompt, which drops characters from
+// a single bulk write.
+bool sendSlow(const String& line);
+
 // Callbacks (set once during setup).
 void onLine(std::function<void(const String&)> cb);        // a received text line
 void onStateChange(std::function<void(State)> cb);

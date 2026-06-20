@@ -330,6 +330,19 @@ bool send(const String& line) {
                                 Config::get().writeWithResponse);
 }
 
+bool sendSlow(const String& line) {
+    if (g_state != State::Connected || !g_rxChar) return false;
+    String payload = line + Config::get().lineEnding;
+    bool resp = Config::get().writeWithResponse;
+    bool ok = true;
+    for (size_t i = 0; i < payload.length(); ++i) {
+        uint8_t c = (uint8_t)payload[i];
+        if (!g_rxChar->writeValue(&c, 1, resp)) ok = false;
+        delay(35);   // give the encoder's slow password input time to keep up
+    }
+    return ok;
+}
+
 void onLine(std::function<void(const String&)> cb)   { g_lineCb  = std::move(cb); }
 void onStateChange(std::function<void(State)> cb)     { g_stateCb = std::move(cb); }
 void onDevicesChanged(std::function<void()> cb)       { g_devicesCb = std::move(cb); }

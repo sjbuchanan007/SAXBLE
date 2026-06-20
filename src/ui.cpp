@@ -478,13 +478,15 @@ void render() {
 void sendCurrentCommand() {
     String line = Commands::build(*g_cmd, g_channel, g_param);
     bool isLogout = String(g_cmd->id) == "gen_logout";
+    bool isPassword = String(g_cmd->id) == "gen_password";
     // Changing the password: remember it for the encoder's "Retype password"
     // prompt. We only save it as our login once the encoder confirms success.
-    if (String(g_cmd->id) == "gen_password" && g_param.length()) {
+    if (isPassword && g_param.length()) {
         g_retypePw = g_param;
         g_pwCandidate = g_param;
     }
-    if (BleUart::send(line)) {
+    // Password entry is paced (sendSlow) so the encoder doesn't drop characters.
+    if (isPassword ? BleUart::sendSlow(line) : BleUart::send(line)) {
         SessionLog::tx(line);
         notifyImpl("Sent");
         // Destructive encoder commands (logclear/factory/reboot/...) reply with
@@ -620,7 +622,8 @@ void presetRunStep() {
     String line = st.line;
     // If the preset changes the password, keep our saved login in sync so
     // auto-login still works on the next connection.
-    if (line.startsWith("password ")) {
+    bool isPw = line.startsWith("password ");
+    if (isPw) {
         String pw = line.substring(9);
         pw.trim();
         if (pw.length()) {
@@ -628,7 +631,8 @@ void presetRunStep() {
             g_pwCandidate = pw;    // saved as our login only once confirmed
         }
     }
-    if (BleUart::send(line)) {
+    // Pace password entry (sendSlow) so the encoder doesn't drop characters.
+    if (isPw ? BleUart::sendSlow(line) : BleUart::send(line)) {
         SessionLog::tx(line);
         g_presetLast = line;
     } else {
@@ -689,7 +693,7 @@ void serviceRetype() {
     if (millis() - g_retypeMs < 250) return;
     g_retypePending = false;
     if (!BleUart::connected() || !g_retypePw.length()) return;
-    BleUart::send(g_retypePw);
+    BleUart::sendSlow(g_retypePw);   // paced, like typing, so no dropped chars
     SessionLog::info("retype sent: " + g_retypePw);   // shown to verify
     g_retypePw = "";
     // Don't let a running preset time out while we confirm the password.
