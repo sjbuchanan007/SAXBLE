@@ -85,6 +85,7 @@ String   g_presetLast;             // last status line shown on the run screen
 String   g_retypePw;               // value to retype when prompted
 String   g_pwCandidate;            // new password; saved only once confirmed
 String   g_loginSavePending;       // login password to save once it succeeds
+String   g_commitPw;               // password to write to NVS from the main loop
 volatile bool g_retypePending = false;
 uint32_t g_retypeMs = 0;
 Screen   g_clockReturn = Screen::BleScan;  // where to go after Set date & time
@@ -983,6 +984,13 @@ void loop() {
     if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
         handleKeys(M5Cardputer.Keyboard.keysState());
     }
+    // Commit a confirmed password to NVS here (main loop), never from the BLE
+    // callback - flash writes there can intermittently stall the device.
+    if (g_commitPw.length()) {
+        Config::get().lastPassword = g_commitPw;
+        Config::addPassword(g_commitPw);   // persists to NVS
+        g_commitPw = "";
+    }
     serviceRetype();    // answer a "Retype password" prompt
     servicePreset();    // advance a running preset (sends happen here, not in RX)
     // notice expiry forces a redraw
@@ -1007,10 +1015,10 @@ void onRxLine(const String& line) {
         g_retypePending = true;
         g_retypeMs = millis();
     }
-    // Password change confirmed: now adopt it as our saved login.
+    // Password change confirmed: adopt it as our login. The actual NVS write is
+    // deferred to loop() - writing flash from this BLE callback can stall.
     if (lower.indexOf("updated successfully") >= 0 && g_pwCandidate.length()) {
-        Config::get().lastPassword = g_pwCandidate;
-        Config::addPassword(g_pwCandidate);
+        g_commitPw = g_pwCandidate;
         g_pwCandidate = "";
     } else if (lower.indexOf("not updated") >= 0 ||
                lower.indexOf("do not match") >= 0) {
@@ -1032,10 +1040,9 @@ void onRxLine(const String& line) {
     if (line.indexOf(Config::get().loginSuccessMarker) >= 0) {
         setLoggedIn(true);
         notifyImpl("Logged in");
-        // The password that just worked: adopt it (and add to the saved list).
+        // The password that just worked: adopt it (NVS write deferred to loop()).
         if (g_loginSavePending.length()) {
-            Config::get().lastPassword = g_loginSavePending;
-            Config::addPassword(g_loginSavePending);
+            g_commitPw = g_loginSavePending;
             g_loginSavePending = "";
         }
         if (g_screen == Screen::Login) gotoScreen(Screen::Home);
