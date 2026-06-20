@@ -13,6 +13,12 @@ only the parameters it accepts, send.
 > working. See [`docs/COMMANDS.md`](docs/COMMANDS.md) and
 > [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md).
 
+> **Experimental — M5Stack Tab5 port:** bring-up tests for an ESP32-P4 Tab5
+> (5" touchscreen, BLE via the on-board ESP32-C6) live in
+> [`tab5/`](tab5/README.md) — a touchscreen test and a BLE-central spike to the
+> encoder. These are separate firmwares with their own toolchain; the long-term
+> plan is a touch UI plus a live dashboard fed by the encoder's RS485 output.
+
 ## Why the Cardputer ADV
 
 It's the right tool for the job: ESP32-S3 with built-in BLE, a 56-key keyboard,
