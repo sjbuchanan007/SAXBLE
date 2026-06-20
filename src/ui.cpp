@@ -81,6 +81,12 @@ volatile bool g_presetGotOk = false;
 volatile bool g_presetGotYN = false;
 String   g_presetLast;             // last status line shown on the run screen
 
+// Password retype: the encoder asks "Retype password" after a password change.
+String   g_retypePw;               // value to retype when prompted
+volatile bool g_retypePending = false;
+uint32_t g_retypeMs = 0;
+Screen   g_clockReturn = Screen::BleScan;  // where to go after Set date & time
+
 // Text-entry context: where the confirmed text should go.
 enum class TextTarget : uint8_t { Param, NewPassword, DeviceName, PresetLocation, SetClock };
 TextTarget g_textTarget = TextTarget::Param;
@@ -102,6 +108,8 @@ bool applyClock(const String& s);
 decltype(M5Cardputer.Display)& D() { return M5Cardputer.Display; }
 
 void setDirty() { g_dirty = true; }
+
+bool clockIsSet() { return time(nullptr) > 1700000000; }  // RTC has been set
 
 void notifyImpl(const String& msg) {
     g_notice = msg;
@@ -461,6 +469,13 @@ void render() {
 void sendCurrentCommand() {
     String line = Commands::build(*g_cmd, g_channel, g_param);
     bool isLogout = String(g_cmd->id) == "gen_logout";
+    // Changing the password: remember it for the encoder's "Retype password"
+    // prompt, and keep our saved login in sync so auto-login still works.
+    if (String(g_cmd->id) == "gen_password" && g_param.length()) {
+        g_retypePw = g_param;
+        Config::get().lastPassword = g_param;
+        Config::addPassword(g_param);
+    }
     if (BleUart::send(line)) {
         SessionLog::tx(line);
         notifyImpl("Sent");
@@ -563,7 +578,7 @@ void confirmTextInput() {
         }
         case TextTarget::SetClock:
             notifyImpl(applyClock(g_textBuf) ? "Clock set" : "Bad format");
-            gotoScreen(Screen::Settings);
+            gotoScreen(g_clockReturn);
             break;
     }
 }
@@ -602,7 +617,11 @@ void presetRunStep() {
     if (line.startsWith("password ")) {
         String pw = line.substring(9);
         pw.trim();
-        if (pw.length()) { Config::get().lastPassword = pw; Config::addPassword(pw); }
+        if (pw.length()) {
+            Config::get().lastPassword = pw;
+            Config::addPassword(pw);
+            g_retypePw = pw;   // for the encoder's "Retype password" prompt
+        }
     }
     if (BleUart::send(line)) {
         SessionLog::tx(line);
@@ -659,6 +678,19 @@ void servicePreset() {
     }
 }
 
+// Called from loop(): answer the encoder's "Retype password" prompt.
+void serviceRetype() {
+    if (!g_retypePending) return;
+    if (millis() - g_retypeMs < 250) return;
+    g_retypePending = false;
+    if (!BleUart::connected() || !g_retypePw.length()) return;
+    BleUart::send(g_retypePw);
+    SessionLog::info("retype password sent (hidden)");
+    g_retypePw = "";
+    // Don't let a running preset time out while we confirm the password.
+    if (g_presetRunning && g_presetWaiting) g_presetStepMs = millis();
+}
+
 // Parse "YYYY-MM-DD HH:MM" and set the ESP32 real-time clock.
 bool applyClock(const String& s) {
     int Y, Mo, D, H, Mi;
@@ -712,6 +744,7 @@ void activateSettings() {
             notifyImpl("Rescanning...");
             break;
         case 4:
+            g_clockReturn = Screen::Settings;
             g_textTarget = TextTarget::SetClock;
             g_textBuf = "";
             g_textTitle = "Set date & time";
@@ -754,7 +787,7 @@ void handleKeys(const Keyboard_Class::KeysState& st) {
                 switch (g_textTarget) {
                     case TextTarget::NewPassword:    gotoScreen(Screen::Login); break;
                     case TextTarget::DeviceName:     gotoScreen(Screen::Settings); break;
-                    case TextTarget::SetClock:       gotoScreen(Screen::Settings); break;
+                    case TextTarget::SetClock:       gotoScreen(g_clockReturn); break;
                     case TextTarget::PresetLocation: presetAbort(); break;
                     default:                         gotoScreen(Screen::CommandList); break;
                 }
@@ -912,6 +945,15 @@ void begin() {
     D().setRotation(1);
     D().fillScreen(COL_BG);
     D().setTextSize(1);
+    // Prompt for the clock on startup if it isn't set (cancellable with `).
+    if (!clockIsSet()) {
+        g_clockReturn = Screen::BleScan;
+        g_textTarget = TextTarget::SetClock;
+        g_textBuf = "";
+        g_textTitle = "Set date & time";
+        g_textHint = "YYYY-MM-DD HH:MM  (`=skip)";
+        g_screen = Screen::TextInput;
+    }
     setDirty();
 }
 
@@ -919,6 +961,7 @@ void loop() {
     if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
         handleKeys(M5Cardputer.Keyboard.keysState());
     }
+    serviceRetype();    // answer a "Retype password" prompt
     servicePreset();    // advance a running preset (sends happen here, not in RX)
     // notice expiry forces a redraw
     if (g_notice.length() && millis() > g_noticeUntil) setDirty();
@@ -934,11 +977,18 @@ void onRxLine(const String& line) {
     SessionLog::rx(line);
     g_lastEncoderLine = line;
 
+    String lower = line;
+    lower.toLowerCase();
+
+    // Encoder asks to confirm a password change: re-send it (deferred to loop).
+    if (lower.indexOf("retype") >= 0 && g_retypePw.length()) {
+        g_retypePending = true;
+        g_retypeMs = millis();
+    }
+
     // Feed the preset runner: flag the encoder's OK / Y-N so servicePreset()
     // (main loop) can advance. Sends happen there, not in this callback.
     if (g_presetRunning && g_presetWaiting) {
-        String lower = line;
-        lower.toLowerCase();
         if (lower.indexOf("y or n") >= 0 || lower.indexOf("y/n") >= 0)
             g_presetGotYN = true;
         else if (line.endsWith("OK"))
