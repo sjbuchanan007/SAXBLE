@@ -6,6 +6,7 @@
 // folder per device); pull the card to read the logs for a commissioning report.
 
 #include <M5Cardputer.h>
+#include <vector>
 #include "config.h"
 #include "ble_uart.h"
 #include "session_log.h"
@@ -13,8 +14,11 @@
 
 namespace {
 
-constexpr int kMaxLoginAttempts = 2;   // don't loop forever on a bad password
-int g_loginAttempts = 0;
+// Auto-login tries each saved password in turn (lastPassword first) until one
+// works, so a unit on a different password still logs in.
+std::vector<String> g_loginCandidates;
+int                 g_loginIdx = 0;
+String              g_pendingLoginPw;
 
 // Auto-login is deferred out of the BLE notify callback into the main loop:
 // sending the password from inside the callback (1ms after the prompt) didn't
@@ -24,6 +28,23 @@ volatile bool g_loginPending = false;
 uint32_t      g_loginPromptMs = 0;
 constexpr uint32_t kLoginSettleMs = 500;
 
+void buildLoginCandidates() {
+    g_loginCandidates.clear();
+    g_loginIdx = 0;
+    auto& cfg = Config::get();
+    auto addUnique = [&](const String& p) {
+        if (!p.length()) return;
+        for (auto& e : g_loginCandidates) if (e == p) return;
+        g_loginCandidates.push_back(p);
+    };
+    addUnique(cfg.lastPassword);               // last one used first
+    for (auto& p : cfg.passwords) addUnique(p); // then the saved list
+    // Always also try the well-known commissioning passwords (correctly cased,
+    // so a unit on either one logs in without any typing).
+    addUnique("studio3");
+    addUnique("MMSmms659");
+}
+
 // Deferred "Y" answer to a destructive command's "Y or N" prompt.
 volatile bool g_confirmPending = false;
 uint32_t      g_confirmPromptMs = 0;
@@ -31,7 +52,7 @@ constexpr uint32_t kConfirmSettleMs = 300;
 
 void handleBleState(BleUart::State s) {
     if (s == BleUart::State::Connected) {
-        g_loginAttempts = 0;
+        buildLoginCandidates();
         // Group this session's logs per device and record it in the registry.
         SessionLog::setDevice(BleUart::peerName(), BleUart::peerAddress());
     }
@@ -55,22 +76,26 @@ void handleEncoderLine(const String& line) {
         return;
     }
 
-    // A login prompt looks like "Password:" — require both to avoid matching
-    // command echoes (e.g. changing the password) that mention the word.
-    if (lower.indexOf("password") < 0 || !line.endsWith(":")) return;
+    // Trigger the next auto-login attempt on the initial "Password:" prompt or
+    // after an "Invalid Password" reply (the encoder re-asks each time).
+    bool prompt  = (lower.indexOf("password") >= 0 && line.endsWith(":"));
+    bool invalid = (lower.indexOf("invalid password") >= 0);
+    if (!prompt && !invalid) return;
 
-    // Seeing the password prompt means we are NOT logged in.
+    // Seeing the prompt means we are NOT logged in.
     Ui::setLoggedIn(false);
+    if (g_loginPending) return;   // a send is already queued; don't skip ahead
 
     auto& cfg = Config::get();
-    if (cfg.autoLogin && !Ui::autoLoginSuppressed() && cfg.lastPassword.length() &&
-        g_loginAttempts < kMaxLoginAttempts) {
+    if (cfg.autoLogin && !Ui::autoLoginSuppressed() &&
+        g_loginIdx < (int)g_loginCandidates.size()) {
         // Defer the actual send to loop() (out of this BLE-callback context).
+        g_pendingLoginPw = g_loginCandidates[g_loginIdx++];
         g_loginPending = true;
         g_loginPromptMs = millis();
     } else {
-        // Auto-login off, suppressed (explicit logout), or exhausted — let the
-        // user pick a password.
+        // Auto-login off, suppressed, or all saved passwords tried — let the
+        // user pick/type a password.
         Ui::promptLogin();
     }
 }
@@ -81,9 +106,8 @@ void serviceAutoLogin() {
     if (!g_loginPending) return;
     if (millis() - g_loginPromptMs < kLoginSettleMs) return;
     g_loginPending = false;
-    if (Ui::loggedIn() || !BleUart::connected()) return;
-    g_loginAttempts++;
-    BleUart::send(Config::get().lastPassword);
+    if (Ui::loggedIn() || !BleUart::connected() || !g_pendingLoginPw.length()) return;
+    BleUart::send(g_pendingLoginPw);
     SessionLog::info("auto-login sent (password hidden)");
 }
 

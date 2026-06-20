@@ -46,7 +46,7 @@ void applyDefaults() {
     g_cfg.autoLogin         = true;
     g_cfg.lastPassword      = "studio3";
     // Popular/known passwords. studio3 is the documented default.
-    g_cfg.passwords         = {"studio3"};
+    g_cfg.passwords         = {"studio3", "MMSmms659"};
     // Substring is enough; full banner is "Welcome to Shire SAX Command Line
     // Interface". Keeping it short tolerates minor wording differences.
     g_cfg.loginSuccessMarker = "Welcome to Shire";
