@@ -41,9 +41,10 @@ void applyDefaults() {
     g_cfg.serviceUuid       = kNusService;
     g_cfg.rxCharUuid        = kNusRx;
     g_cfg.txCharUuid        = kNusTx;
-    // Single CR: the encoder treats CR and LF as separate Enters (which double-
-    // triggered prompts and corrupted the interactive password/retype flow).
-    g_cfg.lineEnding        = "\r";
+    // Single LF: the encoder uses LF as Enter and treats CR as a cursor-return
+    // (CR alone gets no reply; CR+LF double-triggered prompts and corrupted the
+    // interactive password/retype flow). LF alone is the clean Enter.
+    g_cfg.lineEnding        = "\n";
     g_cfg.writeWithResponse = false;          // "Write Without Response"
     g_cfg.autoLogin         = true;
     g_cfg.lastPassword      = "studio3";
