@@ -48,14 +48,22 @@ a rescan.
 This is the test most likely to need iteration. Known P4/C6 facts baked into
 the sketch and what to try:
 
-- **`BLEDevice::init()` hangs / no devices ever appear** → the C6 / ESP-Hosted
-  link is the suspect. Bump the `platform` tag in `platformio.ini` to the newest
-  [pioarduino release](https://github.com/pioarduino/platform-espressif32/releases)
-  and rebuild.
+- **`sdmmc send_op_cond ... 0x107` / `card init failed`, then a crash in
+  `ble_transport_ll_init`** → the P4 can't reach the C6 over SDIO because the
+  *pins* are wrong. The Tab5 has no dedicated PlatformIO board, so we build as
+  `esp32-p4-evboard`, whose default SDIO pins differ from the Tab5. The sketch
+  fixes this with `WiFi.setPins(12,13,11,10,9,8,15)` (clk,cmd,d0,d1,d2,d3,rst)
+  **before** `BLEDevice::init()` — both BLE and Wi-Fi share that one SDIO link.
+  This was the first real blocker we hit and it's now handled.
+- **Link comes up but `Slave firmware version: 0.0.0` / version mismatch** →
+  the C6's ESP-Hosted firmware needs refreshing to match the core. Use M5Burner
+  or M5Stack's [C6 firmware-restore guide](https://docs.m5stack.com/en/guide/restore_factory/m5tab5_c6_wifi).
+  Try the pin fix first — the version read only succeeds once the link is up.
 - **Uses the core's bundled BLE stack (`BLEDevice.h`), not NimBLE-Arduino** —
   NimBLE-Arduino has historically failed to compile on the P4
   ([#906](https://github.com/h2zero/NimBLE-Arduino/issues/906)); the core stack
-  is the one that received the P4/ESP-Hosted fixes.
+  is the one that received the P4/ESP-Hosted fixes (BLE on Tab5 tracked in
+  arduino-esp32 [#12324](https://github.com/espressif/arduino-esp32/issues/12324)).
 - **Scan is PASSIVE on purpose** — active scanning on P4+C6 has a known bug
   where advertising reports stop after ~60–90s
   ([esp-hosted-mcu #180](https://github.com/espressif/esp-hosted-mcu/issues/180)).

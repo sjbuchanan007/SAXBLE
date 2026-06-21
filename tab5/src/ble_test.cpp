@@ -28,11 +28,17 @@
 //     Passive scan is steadier and still sees the service UUID in the advert.
 //     A side effect is we may not get the device *name* (that rides in the scan
 //     response), so we match the encoder by its service UUID instead.
-//   * If BLEDevice::init() hangs or scanning never finds anything, the C6
-//     firmware / ESP-Hosted link is the suspect — that is exactly the unknown
-//     this test exists to surface. Bump the pioarduino platform tag and retry.
+//   * The P4 reaches the C6 over SDIO2 on Tab5-specific pins. The generic
+//     esp32-p4-evboard build uses different defaults, so we MUST set them with
+//     WiFi.setPins() before BLEDevice::init() (see kSdio* below). Symptom of a
+//     missing/wrong pin map: repeating "sdmmc send_op_cond 0x107 / card init
+//     failed" then an abort in ble_transport_ll_init.
+//   * If, with correct pins, the C6 still reports "Slave firmware version:
+//     0.0.0" / a version-mismatch, the C6 needs its ESP-Hosted firmware
+//     refreshed (M5Burner / M5Stack's C6 firmware-restore guide). Pins first.
 
 #include <M5Unified.h>
+#include <WiFi.h>          // only for WiFi.setPins() — see kSdio* below
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEScan.h>
@@ -54,6 +60,13 @@ const char* kPassword   = "MMSmms659";
 const char* kLineEnd    = "\r\n";
 const char* kLoginOk    = "Welcome to Shire";
 const char* kTestCmd    = "gas a list";   // harmless read-back once logged in
+
+// Tab5 SDIO2 pins to the ESP32-C6 radio. The generic esp32-p4-evboard build
+// has DIFFERENT defaults, so without these the P4 knocks on the wrong pins and
+// the link times out (sdmmc send_op_cond 0x107 / "card init failed"). We hand
+// them to the shared ESP-Hosted transport via WiFi.setPins() before BLE init.
+constexpr int kSdioClk = 12, kSdioCmd = 13, kSdioD0 = 11,
+              kSdioD1  = 10, kSdioD2  = 9,  kSdioD3 = 8, kSdioRst = 15;
 
 // --- shared state between BLE callbacks (BLE task) and loop() (main task) ----
 volatile bool g_doConnect   = false;   // scan found the encoder; connect in loop
@@ -252,6 +265,11 @@ void setup() {
     setStatus("init BLE");
     logLine("If this line is the last you see, BLEDevice::init() hung -");
     logLine("that points at the C6 / ESP-Hosted link.");
+
+    // CRITICAL for the Tab5: tell the ESP-Hosted transport which pins reach the
+    // C6 before any BLE/Wi-Fi init. Both stacks share this one SDIO link, so
+    // setting it here is enough for BLE. Without it: sdmmc 0x107 timeouts.
+    WiFi.setPins(kSdioClk, kSdioCmd, kSdioD0, kSdioD1, kSdioD2, kSdioD3, kSdioRst);
 
     BLEDevice::init("SAXBLE-Tab5");
     // (No setPower() here: the TX-power enum isn't exposed the same way on the
