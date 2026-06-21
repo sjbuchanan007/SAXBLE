@@ -254,7 +254,8 @@ void setup() {
     logLine("that points at the C6 / ESP-Hosted link.");
 
     BLEDevice::init("SAXBLE-Tab5");
-    BLEDevice::setPower(ESP_PWR_LVL_P9);
+    // (No setPower() here: the TX-power enum isn't exposed the same way on the
+    // P4/ESP-Hosted BLE build, and the default level is fine for a bench test.)
     g_scan = BLEDevice::getScan();
 
     startScan();
