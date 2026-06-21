@@ -107,6 +107,22 @@ void inboxPush(const String& s) {
     portEXIT_CRITICAL(&g_inboxMux);
 }
 
+// Battery readout in the top-right of the header. getBatteryLevel() is 0-100
+// (or -1 if unknown); isCharging() tells us if USB power is topping it up.
+void drawBattery() {
+    auto& d = M5.Display;
+    int   pct = M5.Power.getBatteryLevel();
+    bool  chg = M5.Power.isCharging();
+    char  buf[24];
+    snprintf(buf, sizeof(buf), "%s%d%%", chg ? "CHG " : "BAT ", pct);
+    d.fillRect(d.width() - 220, 0, 220, 56, TFT_NAVY);
+    d.setTextSize(3);
+    d.setTextColor(chg ? TFT_GREENYELLOW : (pct < 20 ? TFT_RED : TFT_WHITE),
+                   TFT_NAVY);
+    d.setCursor(d.width() - 210, 14);
+    d.print(buf);
+}
+
 // --- screen ----------------------------------------------------------------
 void drawStatus() {
     auto& d = M5.Display;
@@ -116,6 +132,7 @@ void drawStatus() {
     d.setCursor(16, 14);
     d.print("Tab5 BLE test: ");
     d.print(g_status);
+    drawBattery();
 }
 
 void redrawLog() {
@@ -377,6 +394,15 @@ void loop() {
     M5.update();
 
     drainInbox();
+
+    // Refresh the battery readout (screen + serial) every ~3s.
+    static uint32_t lastBatt = 0;
+    if (millis() - lastBatt > 3000) {
+        lastBatt = millis();
+        drawBattery();
+        Serial.printf("[batt] level=%d%% charging=%d\n",
+                      M5.Power.getBatteryLevel(), (int)M5.Power.isCharging());
+    }
 
     // While scanning, keep the device count visible so it's obvious the radio
     // is working even before the encoder shows up.
