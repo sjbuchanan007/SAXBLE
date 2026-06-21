@@ -181,16 +181,33 @@ void notifyCallback(BLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
 // the scan *response*, which a passive scan never requests — so passive scan
 // would never match. The known P4+C6 "active scan stops after ~60-90s" bug
 // doesn't bite us because we connect within a few seconds of seeing the unit.
+std::vector<String> g_seenAddrs;   // BLE-task only: dedupe so each device logs once
+
+// Strip non-printable bytes so junk in a device name can't corrupt the screen.
+String clean(const String& s) {
+    String out;
+    for (size_t i = 0; i < s.length(); ++i) {
+        char c = s[i];
+        out += (c >= 0x20 && c < 0x7f) ? c : '.';
+    }
+    return out;
+}
+
 class ScanCb : public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice dev) override {
         if (g_doConnect || g_target) return;     // already locked onto one
 
-        g_seenCount++;
+        // Nearby devices re-advertise constantly; only act on the FIRST sighting
+        // of each address, otherwise the log scrolls uncontrollably.
+        String addr = dev.getAddress().toString().c_str();
+        for (auto& a : g_seenAddrs) if (a == addr) return;
+        g_seenAddrs.push_back(addr);
+        g_seenCount = g_seenAddrs.size();
+
         bool hit = dev.isAdvertisingService(BLEUUID(kSvcUuid));
-        String name = dev.haveName() ? String(dev.getName().c_str()) : String("?");
-        // Log every device so we can see scanning is alive and what's around.
-        inboxPush(String("dev ") + dev.getAddress().toString().c_str() +
-                  " rssi " + dev.getRSSI() + (hit ? " *SAX* " : " ") + name);
+        String name = dev.haveName() ? clean(dev.getName().c_str()) : String("?");
+        inboxPush(String("dev ") + addr + " " + dev.getRSSI() +
+                  (hit ? " *SAX* " : " ") + name);
 
         if (hit) {
             g_scan->stop();
@@ -204,6 +221,7 @@ ScanCb g_scanCb;
 void startScan() {
     g_doConnect = false;
     g_seenCount = 0;
+    g_seenAddrs.clear();
     g_scanning = true;
     if (g_target) { delete g_target; g_target = nullptr; }
     setStatus("scanning");
