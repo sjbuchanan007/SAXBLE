@@ -244,9 +244,25 @@ void startScan() {
 void doConnect() {
     g_scanning = false;
     setStatus("connecting");
-    if (!g_client) g_client = BLEDevice::createClient();
 
-    if (!g_client->connect(g_target)) {
+    // NimBLE won't connect while a scan is still active (returns status=2,
+    // BLE_HS_EALREADY). Stopping inside the scan callback isn't enough - the GAP
+    // scan takes a moment to actually wind down - so stop it here on the main
+    // task and give it time before connecting.
+    g_scan->stop();
+    delay(200);
+
+    if (!g_client) g_client = BLEDevice::createClient();
+    g_client->setConnectTimeout(12);   // seconds
+
+    // Retry a few times: the first connect right after a scan is often refused.
+    bool ok = false;
+    for (int attempt = 1; attempt <= 3 && !ok; ++attempt) {
+        logLine(String("connect attempt ") + attempt);
+        ok = g_client->connect(g_target);
+        if (!ok) delay(400);
+    }
+    if (!ok) {
         logLine("!! connect failed");
         g_doRescan = true;
         return;
@@ -315,6 +331,9 @@ void setup() {
     auto cfg = M5.config();
     M5.begin(cfg);
     M5.Display.setRotation(1);
+    // Dim the backlight: at full brightness the 5" panel + BLE TX spikes can sag
+    // the rail enough to trip the brownout detector during a connect.
+    M5.Display.setBrightness(80);
     M5.Display.fillScreen(TFT_BLACK);
 
     Serial.begin(115200);
