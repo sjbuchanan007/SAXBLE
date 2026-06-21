@@ -61,6 +61,12 @@ const char* kLineEnd    = "\r\n";
 const char* kLoginOk    = "Welcome to Shire";
 const char* kTestCmd    = "gas a list";   // harmless read-back once logged in
 
+// The encoder advertises under its Location string and does NOT put the ISSC
+// service UUID in its advertising packet, so we match by name as well. Set this
+// to your encoder's advertised name (its Location). Leave "" to match by the
+// service UUID only.
+const char* kTargetName = "mmssjbt1";
+
 // Tab5 SDIO2 pins to the ESP32-C6 radio. The generic esp32-p4-evboard build
 // has DIFFERENT defaults, so without these the P4 knocks on the wrong pins and
 // the link times out (sdmmc send_op_cond 0x107 / "card init failed"). We hand
@@ -204,8 +210,9 @@ class ScanCb : public BLEAdvertisedDeviceCallbacks {
         g_seenAddrs.push_back(addr);
         g_seenCount = g_seenAddrs.size();
 
-        bool hit = dev.isAdvertisingService(BLEUUID(kSvcUuid));
         String name = dev.haveName() ? clean(dev.getName().c_str()) : String("?");
+        bool hit = dev.isAdvertisingService(BLEUUID(kSvcUuid)) ||
+                   (strlen(kTargetName) && name == kTargetName);
         inboxPush(String("dev ") + addr + " " + dev.getRSSI() +
                   (hit ? " *SAX* " : " ") + name);
 
