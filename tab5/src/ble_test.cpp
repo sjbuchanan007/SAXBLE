@@ -8,8 +8,9 @@
 // fragile — see the notes below).
 //
 // What it does, fully automatically:
-//   1. Scan (PASSIVE — see note) for a device advertising the encoder's ISSC
-//      "transparent UART" service.
+//   1. Scan (ACTIVE) for a device advertising the encoder's ISSC "transparent
+//      UART" service. Active scan is needed: the 128-bit service UUID and name
+//      ride in the scan response, which a passive scan never requests.
 //   2. Connect, discover characteristics, subscribe to every notify char.
 //   3. Log in: when the encoder prints "Password:", send the password one
 //      character at a time, terminated with CR+LF.
@@ -23,11 +24,10 @@
 //   * Uses the BLE library bundled with the Arduino core (BLEDevice.h), NOT
 //     NimBLE-Arduino. NimBLE-Arduino has historically failed to compile on the
 //     P4; the core's bundled stack is the one that got the P4/ESP-Hosted fixes.
-//   * PASSIVE scan on purpose: there is a known ESP-Hosted (P4+C6) bug where
-//     ACTIVE scanning stops delivering advertising reports after ~60-90s.
-//     Passive scan is steadier and still sees the service UUID in the advert.
-//     A side effect is we may not get the device *name* (that rides in the scan
-//     response), so we match the encoder by its service UUID instead.
+//   * There is a known ESP-Hosted (P4+C6) bug where ACTIVE scanning stops
+//     delivering advertising reports after ~60-90s. We use active scan anyway
+//     because we connect within seconds of seeing the encoder, well inside that
+//     window. If a unit isn't found, tap the screen to restart the scan.
 //   * The P4 reaches the C6 over SDIO2 on Tab5-specific pins. The generic
 //     esp32-p4-evboard build uses different defaults, so we MUST set them with
 //     WiFi.setPins() before BLEDevice::init() (see kSdio* below). Symptom of a
@@ -85,6 +85,22 @@ String g_rxLine;                       // partial line being assembled
 std::vector<String> g_log;             // last N lines, for the screen
 constexpr size_t kLogMax = 14;
 
+// All drawing happens on the main task. BLE callbacks (scan results, notifies)
+// run on the BLE host task, so they hand text to the loop via this little
+// mailbox instead of touching M5GFX directly (the DSI panel doesn't like being
+// drawn from two tasks at once).
+portMUX_TYPE        g_inboxMux = portMUX_INITIALIZER_UNLOCKED;
+std::vector<String> g_inbox;
+volatile int        g_seenCount = 0;   // distinct devices seen this scan
+volatile bool       g_loginJustOk = false;
+volatile bool       g_scanning  = false;
+
+void inboxPush(const String& s) {
+    portENTER_CRITICAL(&g_inboxMux);
+    g_inbox.push_back(s);
+    portEXIT_CRITICAL(&g_inboxMux);
+}
+
 // --- screen ----------------------------------------------------------------
 void drawStatus() {
     auto& d = M5.Display;
@@ -130,21 +146,23 @@ bool looksLikePrompt(const String& s) {
     return c == ':' || c == '>' || c == '?' || c == '#';
 }
 
+// Runs on the BLE host task: assemble + classify a line, but DRAW nothing here
+// (hand the text to the loop via inboxPush).
 void flushLine() {
     g_rxLine.trim();
     if (!g_rxLine.length()) { g_rxLine = ""; return; }
 
-    logLine(g_rxLine);
+    inboxPush(g_rxLine);
 
     String lower = g_rxLine;
     lower.toLowerCase();
     if (lower.indexOf("password") >= 0 && g_rxLine.endsWith(":") && !g_loggedIn) {
         g_sendPwd = true;                       // act in loop()
     } else if (lower.indexOf("invalid password") >= 0) {
-        logLine("!! invalid password");
+        inboxPush("!! invalid password");
     } else if (g_rxLine.indexOf(kLoginOk) >= 0) {
         g_loggedIn = true;
-        setStatus("logged in");
+        g_loginJustOk = true;                   // loop() updates the status line
     }
     g_rxLine = "";
 }
@@ -158,11 +176,23 @@ void notifyCallback(BLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
     if (looksLikePrompt(g_rxLine)) flushLine();   // prompts have no newline
 }
 
-// --- scan: pick the encoder by its service UUID (works with passive scan) ---
+// --- scan: pick the encoder by its service UUID -----------------------------
+// NOTE: ACTIVE scan. The encoder's 128-bit service UUID (and its name) ride in
+// the scan *response*, which a passive scan never requests — so passive scan
+// would never match. The known P4+C6 "active scan stops after ~60-90s" bug
+// doesn't bite us because we connect within a few seconds of seeing the unit.
 class ScanCb : public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice dev) override {
-        if (g_doConnect || g_target) return;     // already have one
-        if (dev.isAdvertisingService(BLEUUID(kSvcUuid))) {
+        if (g_doConnect || g_target) return;     // already locked onto one
+
+        g_seenCount++;
+        bool hit = dev.isAdvertisingService(BLEUUID(kSvcUuid));
+        String name = dev.haveName() ? String(dev.getName().c_str()) : String("?");
+        // Log every device so we can see scanning is alive and what's around.
+        inboxPush(String("dev ") + dev.getAddress().toString().c_str() +
+                  " rssi " + dev.getRSSI() + (hit ? " *SAX* " : " ") + name);
+
+        if (hit) {
             g_scan->stop();
             g_target = new BLEAdvertisedDevice(dev);
             g_doConnect = true;
@@ -173,10 +203,12 @@ ScanCb g_scanCb;
 
 void startScan() {
     g_doConnect = false;
+    g_seenCount = 0;
+    g_scanning = true;
     if (g_target) { delete g_target; g_target = nullptr; }
     setStatus("scanning");
     g_scan->setAdvertisedDeviceCallbacks(&g_scanCb, /*wantDuplicates=*/false);
-    g_scan->setActiveScan(false);    // PASSIVE — dodge the P4+C6 active-scan bug
+    g_scan->setActiveScan(true);     // need scan responses (service UUID + name)
     g_scan->setInterval(160);
     g_scan->setWindow(160);
     g_scan->clearResults();
@@ -185,6 +217,7 @@ void startScan() {
 
 // --- connect + discover -----------------------------------------------------
 void doConnect() {
+    g_scanning = false;
     setStatus("connecting");
     if (!g_client) g_client = BLEDevice::createClient();
 
@@ -279,8 +312,37 @@ void setup() {
     startScan();
 }
 
+// Drain text queued by the BLE-task callbacks and draw it (main task only).
+void drainInbox() {
+    for (;;) {
+        String s;
+        portENTER_CRITICAL(&g_inboxMux);
+        if (!g_inbox.empty()) { s = g_inbox.front(); g_inbox.erase(g_inbox.begin()); }
+        portEXIT_CRITICAL(&g_inboxMux);
+        if (!s.length()) break;
+        logLine(s);
+    }
+}
+
 void loop() {
     M5.update();
+
+    drainInbox();
+
+    // While scanning, keep the device count visible so it's obvious the radio
+    // is working even before the encoder shows up.
+    static int lastSeen = -1;
+    if (g_scanning) {
+        int seen = g_seenCount;
+        if (seen != lastSeen) {
+            lastSeen = seen;
+            setStatus(String("scanning (") + seen + " seen)");
+        }
+    } else {
+        lastSeen = -1;
+    }
+
+    if (g_loginJustOk) { g_loginJustOk = false; setStatus("logged in"); }
 
     // Tap anywhere to force a rescan (e.g. if you power-cycled the encoder).
     if (M5.Touch.getCount() > 0 && M5.Touch.getDetail(0).wasPressed()) {
