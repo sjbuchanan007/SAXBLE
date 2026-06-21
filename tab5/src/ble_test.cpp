@@ -254,18 +254,24 @@ void doConnect() {
 
     if (!g_client) g_client = BLEDevice::createClient();
 
-    // Retry a few times: the first connect right after a scan is often refused.
-    bool ok = false;
-    for (int attempt = 1; attempt <= 3 && !ok; ++attempt) {
+    // Over the ESP-Hosted (C6) link, connect() often brings the radio link UP
+    // but still returns an error (status=2, or a slow timeout). So trust
+    // isConnected() over the return value, and clean up with disconnect()
+    // between attempts - otherwise the next try reports "Client busy".
+    bool ok = g_client->isConnected();
+    for (int attempt = 1; attempt <= 2 && !ok; ++attempt) {
         logLine(String("connect attempt ") + attempt);
-        ok = g_client->connect(g_target);
-        if (!ok) delay(400);
+        bool rc = g_client->connect(g_target);
+        ok = rc || g_client->isConnected();
+        if (!ok) { g_client->disconnect(); delay(600); }
     }
     if (!ok) {
         logLine("!! connect failed");
+        g_client->disconnect();
         g_doRescan = true;
         return;
     }
+    logLine("connected");
 
     g_writeChr = nullptr;
     int subscribed = 0;
