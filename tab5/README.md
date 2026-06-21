@@ -38,37 +38,62 @@ register but X/Y look swapped or mirrored, that's just orientation — change
 `setRotation()` in `src/touch_test.cpp`; the panel is working.
 
 ## BLE test — what to expect
-It auto-scans for the encoder's ISSC transparent-UART service, connects,
-subscribes, logs in (sends `MMSmms659` char-by-char with CR+LF on the
-`Password:` prompt), and on `Welcome to Shire` sends `gas a list`. Everything
-the encoder says is shown on screen and on serial. **Tap the screen** to force
-a rescan.
+It auto-scans, lists nearby devices with a live "seen" count, matches the
+encoder by name (`kTargetName`, default `mmssjbt1`) or its ISSC service UUID,
+connects, subscribes, logs in (sends `MMSmms659` char-by-char with CR+LF on the
+`Password:` prompt), and on `Welcome to Shire` sends `gas a list`. Everything is
+shown on screen and on serial; the header also shows battery (`CHG/BAT nn%`).
+**Tap the screen** to force a rescan.
 
-### If the BLE test fails (and how to read it)
-This is the test most likely to need iteration. Known P4/C6 facts baked into
-the sketch and what to try:
+## Status (hardware bring-up, June 2026)
 
-- **`sdmmc send_op_cond ... 0x107` / `card init failed`, then a crash in
-  `ble_transport_ll_init`** → the P4 can't reach the C6 over SDIO because the
-  *pins* are wrong. The Tab5 has no dedicated PlatformIO board, so we build as
-  `esp32-p4-evboard`, whose default SDIO pins differ from the Tab5. The sketch
-  fixes this with `WiFi.setPins(12,13,11,10,9,8,15)` (clk,cmd,d0,d1,d2,d3,rst)
-  **before** `BLEDevice::init()` — both BLE and Wi-Fi share that one SDIO link.
-  This was the first real blocker we hit and it's now handled.
-- **Link comes up but `Slave firmware version: 0.0.0` / version mismatch** →
-  the C6's ESP-Hosted firmware needs refreshing to match the core. Use M5Burner
-  or M5Stack's [C6 firmware-restore guide](https://docs.m5stack.com/en/guide/restore_factory/m5tab5_c6_wifi).
-  Try the pin fix first — the version read only succeeds once the link is up.
-- **Uses the core's bundled BLE stack (`BLEDevice.h`), not NimBLE-Arduino** —
-  NimBLE-Arduino has historically failed to compile on the P4
+| Stage | Result |
+|-------|--------|
+| Display + multi-touch (touch test) | ✅ works |
+| BLE init via P4→C6 (ESP-Hosted) | ✅ works (after SDIO-pin fix) |
+| Scan + find the encoder | ✅ works (active scan, name match) |
+| **Connect / login** | ⛔ **blocked by outdated C6 firmware** |
+
+**The remaining blocker:** every boot prints `Version on Host is NEWER than
+version on co-processor`. The C6's ESP-Hosted firmware is older than the Arduino
+core (3.3.9) expects, so the connection handshake fails — the radio link
+half-establishes (`Client busy, connected … id=0`) but `connect()` returns
+`status=2` and the chip resets. Power was ruled out (battery 100%). The fix is
+to **update the C6 firmware**; everything else is proven working.
+
+### Resuming: update the C6 firmware
+The Tab5's USB-C port is wired to the **P4**, not the C6 — esptool over USB-C
+reports *"not an ESP32-P4 image … expected 18 but value was 13"* (18 = P4,
+13 = C6). **Do not `--force`** that; it would write a C6 image onto the P4.
+
+The C6 is flashed via the **reserved download header on the PCB with a 3.3 V
+USB-TTL adapter** (M5Stack's *ESP32 Downloader* matches the pinout). Then, in
+M5Burner: burn **Tab5 ESP32-C6 Wi-Fi SDIO v2.12.6** — long-press reset until the
+internal green LED flashes fast, select the **adapter's** serial port (not the
+P4 `usbmodem` port), Start. See M5Stack's
+[C6 firmware-restore guide](https://docs.m5stack.com/en/guide/restore_factory/m5tab5_c6_wifi).
+After flashing, reflash this test and confirm the version banner is gone and the
+connect reaches `connected → Password:`.
+
+### Fixes already baked into the sketch (the journey here)
+- **SDIO pins**: `WiFi.setPins(12,13,11,10,9,8,15)` before `BLEDevice::init()` —
+  without it the P4 can't reach the C6 (`sdmmc … 0x107`, crash in
+  `ble_transport_ll_init`). The generic `esp32-p4-evboard` defaults are wrong.
+- **Core's bundled BLE stack** (`BLEDevice.h`), not NimBLE-Arduino, which has
+  failed to compile on the P4
   ([#906](https://github.com/h2zero/NimBLE-Arduino/issues/906)); the core stack
-  is the one that received the P4/ESP-Hosted fixes (BLE on Tab5 tracked in
-  arduino-esp32 [#12324](https://github.com/espressif/arduino-esp32/issues/12324)).
-- **Scan is PASSIVE on purpose** — active scanning on P4+C6 has a known bug
-  where advertising reports stop after ~60–90s
-  ([esp-hosted-mcu #180](https://github.com/espressif/esp-hosted-mcu/issues/180)).
-  Passive scan is steadier; we match the encoder by **service UUID** (we may not
-  get its name, which rides in the active-scan response).
+  got the P4/ESP-Hosted fixes (Tab5 BLE tracked in arduino-esp32
+  [#12324](https://github.com/espressif/arduino-esp32/issues/12324)).
+- **Active scan + name match**: the encoder's 128-bit service UUID and name ride
+  in the scan response, so passive scan never matched it.
+- **Scan dedupe + `CORE_DEBUG_LEVEL=2`**: a noisy RF environment otherwise
+  floods the log; there's also a known P4+C6 active-scan stall after ~60–90s
+  ([esp-hosted-mcu #180](https://github.com/espressif/esp-hosted-mcu/issues/180)),
+  but we connect within seconds so it doesn't bite.
+- **Connect handling**: stop the scan before connecting (NimBLE won't connect
+  while scanning → `status=2`), trust `isConnected()` over the return code, and
+  retry with cleanup. (Still defeated by the C6-firmware mismatch above.)
+- **Display init retry** for the racy Tab5 panel detection, and dimmed backlight.
 
 These cannot be compiled or tested in the dev container (no network for the
 toolchain, no hardware) — same workflow as the Cardputer: flash, watch serial,

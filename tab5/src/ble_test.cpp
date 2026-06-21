@@ -350,7 +350,7 @@ void sendLine(const String& line) {
 } // namespace
 
 void setup() {
-    delay(300);                 // let the panel power rails settle first
+    delay(800);                 // let the panel power rails settle first
     auto cfg = M5.config();
     M5.begin(cfg);
     // The Tab5 panel detection is racy (it sometimes logs "display panel was not
