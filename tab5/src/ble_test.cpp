@@ -350,11 +350,17 @@ void sendLine(const String& line) {
 } // namespace
 
 void setup() {
+    delay(300);                 // let the panel power rails settle first
     auto cfg = M5.config();
     M5.begin(cfg);
+    // The Tab5 panel detection is racy (it sometimes logs "display panel was not
+    // detected" and stays dark, especially right after a reset). Retry the
+    // display init a few times until it reports a real width.
+    for (int i = 0; i < 4 && M5.Display.width() == 0; ++i) {
+        delay(250);
+        M5.Display.init();
+    }
     M5.Display.setRotation(1);
-    // Dim the backlight: at full brightness the 5" panel + BLE TX spikes can sag
-    // the rail enough to trip the brownout detector during a connect.
     M5.Display.setBrightness(80);
     M5.Display.fillScreen(TFT_BLACK);
 
