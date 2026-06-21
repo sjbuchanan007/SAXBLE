@@ -253,7 +253,6 @@ void doConnect() {
     delay(200);
 
     if (!g_client) g_client = BLEDevice::createClient();
-    g_client->setConnectTimeout(12);   // seconds
 
     // Retry a few times: the first connect right after a scan is often refused.
     bool ok = false;
