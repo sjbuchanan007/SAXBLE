@@ -13,11 +13,6 @@ only the parameters it accepts, send.
 > working. See [`docs/COMMANDS.md`](docs/COMMANDS.md) and
 > [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md).
 
-> **Experimental — M5Stack Tab5 port:** bring-up tests for an ESP32-P4 Tab5
-> (5" touchscreen, BLE via the on-board ESP32-C6) live in
-> [`tab5/`](tab5/README.md) — a touchscreen test and a BLE-central spike to the
-> encoder. These are separate firmwares with their own toolchain; the long-term
-> plan is a touch UI plus a live dashboard fed by the encoder's RS485 output.
 
 ## Why the Cardputer ADV
 
@@ -129,35 +124,6 @@ pio run                 # build
 pio run -t upload       # flash over USB
 pio device monitor      # serial log @ 115200
 ```
-
-### M5Stack Tab5 tests (experimental)
-
-The Tab5 bring-up tests are a **separate** PlatformIO project — different MCU
-(ESP32-P4), toolchain and libraries — so they have their own `platformio.ini`
-inside [`tab5/`](tab5/README.md). You don't point PlatformIO at a branch; git
-handles branches, and PlatformIO just opens the folder that holds the
-`platformio.ini` you want to build.
-
-1. Get the code onto your machine:
-   ```bash
-   git fetch origin
-   git checkout claude/sax-d-alarm-setup-device-gc00k9
-   git pull
-   ```
-2. In VS Code, **File → Open Folder…** and pick the **`tab5`** folder — *not*
-   the SAXBLE root (the root is the Cardputer project). PlatformIO then shows two
-   environments: `tab5-touch-test` and `tab5-ble-test`.
-3. Plug in the Tab5 over USB-C and flash one (toolbar Upload, or from inside
-   `tab5/`):
-   ```bash
-   pio run -e tab5-touch-test -t upload && pio device monitor   # start here
-   pio run -e tab5-ble-test   -t upload && pio device monitor   # the BLE spike
-   ```
-
-Only one firmware lives on the board at a time. The first build downloads the
-ESP32-P4 toolchain (a few hundred MB) — that's normal and one-time. See
-[`tab5/README.md`](tab5/README.md) for what each test should show and how to
-read a failure (the BLE-via-C6 path is the genuine unknown).
 
 > **Cardputer ADV notes.** The ADV is new (2026) and uses the Stamp **S3A**.
 > If the keyboard/display init misbehaves, update `M5Unified`/`M5GFX` to their
